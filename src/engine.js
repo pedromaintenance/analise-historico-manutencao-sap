@@ -392,7 +392,7 @@ const diffDays=(a,b)=>(asDate(b).getTime()-asDate(a).getTime())/86400000;
 const mean=v=>v.length?v.reduce((a,b)=>a+b,0)/v.length:null;
 const median=v=>{if(!v.length)return null;const t=[...v].sort((a,b)=>a-b);return t.length%2?t[(t.length-1)/2]:(t[t.length/2-1]+t[t.length/2])/2;};
 export function analyzeRodante(model,{
-  allowProxy=true,component="esteira completa",assetPrefix="",asOf=isoDate(new Date()),
+  allowProxy=true,allowWeak=false,component="esteira completa",assetPrefix="",asOf=isoDate(new Date()),
   completionStatuses=["ENTE","ENCE"],cancellationStatuses=["NEXE","CANC"]
 }={}) {
   const candidates=[];
@@ -441,7 +441,7 @@ export function analyzeRodante(model,{
   const samples=[];
   for(const c of eligible){
     const a=c.analysis;
-    const supported=a.closed||a.costReal>0;
+    const supported=a.eventStrong||(allowWeak&&(a.closed||a.costReal>0));
     const dated=Boolean(a.reference);
     // Componente ou lado desconhecido não forma sequência de trocas comparável.
     if(!supported||!dated||a.side==="não informado"||(asOf&&a.reference>asOf))continue;
@@ -452,7 +452,7 @@ export function analyzeRodante(model,{
     for(const side of a.side==="ambos"?["direito","esquerdo"]:[a.side])
       samples.push({asset:c.identity.id,label:c.identity.label,tag:c.identity.tag,
         component:a.component,side,date:selectedDate,dateSource:allowProxy?a.source:"data real",
-        order:c.id,confidence:a.closed?"status indicativo":"custo registrado",
+        order:c.id,confidence:a.evidenceLevel,
         costReal:a.costReal,costPlanned:a.costPlanned,
         source:c});
   }
@@ -463,7 +463,7 @@ export function analyzeRodante(model,{
     if(!groups.has(group))groups.set(group,[]);
     groups.get(group).push(item);
   }
-  const intervals=[],audit=[];let clustered=0;
+  const intervals=[],audit=[],initialLifeEstimates=[];let clustered=0;
   for(const [group,events] of groups){
     events.sort((a,b)=>a.date.localeCompare(b.date)||a.order.localeCompare(b.order));
     const distinct=[];
@@ -480,6 +480,26 @@ export function analyzeRodante(model,{
       orders:x.orders.join("; "),realCost:x.costReal,plannedCost:x.costPlanned,
       origin:allowProxy?"referência de planejamento/avaria/entrada":"data de execução",
       warning:"Agrupamento de até 7 dias é provisório e exige validação técnica"})));
+    // Primeira troca observada: utilizar entrada real em serviço quando fornecida;
+    // aquisição apenas aproxima/limita tempo desde compra.
+    if(distinct.length) {
+      const first=distinct[0];
+      const eq=first.asset.startsWith("EQ:")?model.byEquip.get(first.asset.slice(3)):null;
+      const serviceDate=isoDate(eq?.serviceStart);
+      const acquisition=isoDate(eq?.acquisitionDate);
+      const originDate=serviceDate||acquisition;
+      const source=serviceDate?"entrada em serviço":"aquisição (não é comissionamento)";
+      if(originDate&&first.date>=originDate) {
+        initialLifeEstimates.push({asset:first.label,tag:first.tag,component:first.component,
+          side:first.side,originDate,originSource:source,firstDate:first.date,
+          elapsedDays:diffDays(originDate,first.date),observedReplacements:distinct.length,
+          orders:first.orders.join("; "),evidence:first.confidence,
+          quality:serviceDate
+            ?"estimativa da primeira esteira se o histórico desde entrada em serviço for completo"
+            :"tempo máximo desde aquisição até a primeira troca observada; não é vida comprovada",
+          costFirstOrder:first.costReal});
+      }
+    }
     for(let i=1;i<distinct.length;i++){
       const earlier=distinct[i-1],later=distinct[i];
       const days=diffDays(earlier.date,later.date);
@@ -504,14 +524,16 @@ export function analyzeRodante(model,{
   const allComponents=new Set(intervals.map(x=>x.component));
   const mixingComponents=allComponents.size>1;
   return {candidates,eligible,financialOrders,costByClass,materialsByOrder,
-    intervals,audit,summary,meanDays:mixingComponents?null:mean(intervals.map(x=>x.days)),
+    intervals,audit,initialLifeEstimates,summary,meanDays:mixingComponents?null:mean(intervals.map(x=>x.days)),
     medianDays:mixingComponents?null:median(intervals.map(x=>x.days)),
     mixingComponents,clustered,
     missingSide:eligible.filter(x=>x.analysis.side==="não informado").length,
+    excludedWeak:eligible.filter(x=>!x.analysis.eventStrong).length,
     futureDated:eligible.filter(x=>asOf&&x.analysis.reference>asOf).length,
     withoutCost:candidates.filter(x=>x.analysis.costReal===0).length,
     withoutReservation:candidates.filter(x=>!x.reserves.length).length,
     dataMode:allowProxy?"datas-base/avaria/entrada (proxy)":"somente data real",
+    evidenceMode:allowWeak?"exploratório - inclui evidências fracas":"prudente - custo, status e materiais triangulados",
     excluded:eligible.filter(x=>!x.analysis.reference||(asOf&&x.analysis.reference>asOf)||x.analysis.side==="não informado"||
       !(x.analysis.closed||x.analysis.costReal>0)).length};
 }
