@@ -658,7 +658,7 @@ export function analyzeLifecycle(model,{
       order:o.id,notes:(o.notes||[]).map(x=>x.id).filter(Boolean).join("; "),
       description:o.description,side:a.side,component:a.component,
       operationClass:a.operationClass,status:o.sys,evidence:a.evidenceLevel,
-      accepted:accepted?"SIM":"NÃO",reason,
+      accepted:accepted&&a.side!=="não informado"?"SIM":"NÃO",reason,
       dateBase:a.dateBase,faultEnd:a.faultEnd,entry:a.entry,
       dateReference:a.reference,referenceSource:a.source,
       costReal:a.costReal,costPlanned:a.costPlanned,
@@ -766,7 +766,7 @@ export function analyzeLifecycle(model,{
       approvedOrders:new Set(valid.map(x=>x.order)).size,
       closedIntervals:cycles.filter(x=>x.cycleType==="Troca subsequente"&&x.days!=="").length,
       firstEstimates:cycles.filter(x=>x.cycleType==="Primeira troca observada"&&x.days!=="").length,
-      missingSide:audit.filter(x=>x.accepted==="SIM"&&x.side==="não informado").length}
+      missingSide:audit.filter(x=>x.reason==="Troca candidata, lado não informado").length}
   };
 }
 
