@@ -216,6 +216,11 @@ export function createModel(bases) {
   const orders=[];
   for (const o of byOrder.values()) {
     const linkedNotes=noteByOrder.get(o.id)||[];
+    // Algumas exportações IW29 não trazem Ordem preenchida.
+    // Conciliar pelo número da Nota informada na IW39, sem duplicar.
+    if(o.note)for(const note of norm.notes){
+      if(note.id===o.note&&!linkedNotes.some(n=>n.id===note.id))linkedNotes.push(note);
+    }
     const linkedMaterials=reservesByOrder.get(o.id)||[];
     const n=linkedNotes[0]||null;
     const eq=o.equipment||(n?.equipment||"");
@@ -568,4 +573,204 @@ export function exportMaterials(model) {
     "Quantidade solicitada (por unidade)":m.qty,
     "Natureza":"Reserva / necessidade — não comprova saída física"
   }));
+}
+
+
+/**
+ * Ciclo de vida por ativo e lado, incluindo primeira troca observada.
+ * As referências temporais da IW39 não se tornam datas de execução comprovadas.
+ * Nenhum dado corporativo faz parte deste módulo.
+ */
+export function analyzeLifecycle(model,{
+  allowWeak=false,asOf=isoDate(new Date()),
+  completionStatuses=["ENTE","ENCE"],cancellationStatuses=["NEXE","CANC"],
+  assetFilter=""
+}={}) {
+  const categoryOf=(name)=>{
+    const n=key(name);
+    if(/TRATOR\s+DE\s+ESTEIRAS|BULLDOZER|\bDOZER\b|\bCAT\s+D[0-9]\b/.test(n))return "Tratores de esteiras";
+    if(/ESCAVADEIRA|EXCAVATOR|SHOVEL/.test(n))return "Escavadeiras";
+    if(/PERFURATRIZ|DRILL|DR410|DI650/.test(n))return "Perfuratrizes";
+    return "Outros / verificar";
+  };
+  const isTracked=(name)=>categoryOf(name)!=="Outros / verificar";
+  const machines=new Map();
+  for(const e of model.norm.equipment){
+    if(!e.id||!isTracked(e.object+" "+e.model))continue;
+    if(assetFilter&&!key(e.object+" "+e.id).includes(key(assetFilter)))continue;
+    machines.set("EQ:"+e.id,{id:"EQ:"+e.id,name:e.object||e.id,
+      tag:machineTag(e.object)||machineTag(e.inventory),family:categoryOf(e.object+" "+e.model),
+      acquisition:isoDate(e.acquisitionDate),commissioned:isoDate(e.serviceStart),
+      equipment:e.id});
+  }
+  const audit=[],valid=[];
+  for(const o of model.orders){
+    const a=classifyRodante(o,{completionStatuses,cancellationStatuses});
+    if(!a.component)continue;
+    const id=o.identity.id;
+    const e=id.startsWith("EQ:")?model.byEquip.get(id.slice(3)):null;
+    const label=e?.object||o.identity.label;
+    if(assetFilter&&!key(label+" "+id).includes(key(assetFilter)))continue;
+    const tracked=isTracked(label+" "+(e?.model||""));
+    if(!tracked&&!machines.has(id))continue;
+    if(!machines.has(id))machines.set(id,{id,name:label,
+      tag:o.identity.tag||machineTag(label),
+      family:categoryOf(label+" "+(e?.model||"")),acquisition:isoDate(e?.acquisitionDate),
+      commissioned:isoDate(e?.serviceStart),equipment:e?.id||""});
+    const reserveList=o.reserves.map(x=>({
+      reservation:x.id,material:x.material||"",description:x.description||"",
+      qty:x.qty,unit:x.unit,deleted:x.deletedFlag,finalFlag:x.finalFlag
+    }));
+    const isWhole=a.operationClass==="troca de esteira / conjunto";
+    const statusReliable=a.eventStrong;
+    const accepted=isWhole&&a.isCandidate&&a.reference&&(!asOf||a.reference<=asOf)
+      &&!a.cancelled&&(statusReliable||allowWeak);
+    let reason="";
+    if(!isWhole)reason="O serviço não é troca completa da esteira";
+    else if(a.cancelled)reason="Status de cancelamento";
+    else if(!a.reference)reason="Sem referência cronológica";
+    else if(asOf&&a.reference>asOf)reason="Intervenção com data futura";
+    else if(!statusReliable&&!allowWeak)reason="Evidência insuficiente (conferir OS e baixa)";
+    else if(a.side==="não informado")reason="Troca candidata, lado não informado";
+    else reason="Elegível para reconstrução de ciclo";
+    const record={
+      equipment:e?.id||"",objectId:id,asset:label,tag:machines.get(id).tag,
+      family:machines.get(id).family,
+      order:o.id,notes:(o.notes||[]).map(x=>x.id).filter(Boolean).join("; "),
+      description:o.description,side:a.side,component:a.component,
+      operationClass:a.operationClass,status:o.sys,evidence:a.evidenceLevel,
+      accepted:accepted?"SIM":"NÃO",reason,
+      dateBase:a.dateBase,faultEnd:a.faultEnd,entry:a.entry,
+      dateReference:a.reference,referenceSource:a.source,
+      costReal:a.costReal,costPlanned:a.costPlanned,
+      reserveCount:reserveList.length,
+      reservedMaterials:reserveList.map(x=>x.material||("SEM COD: "+x.description)).join("; ")
+    };
+    audit.push(record);
+    if(accepted){
+      if(a.side==="ambos"){
+        valid.push({...record,side:"direito",originSide:"ambos"});
+        valid.push({...record,side:"esquerdo",originSide:"ambos"});
+      }else if(a.side!=="não informado"){
+        valid.push({...record,originSide:a.side});
+      }
+    }
+  }
+
+  const groups=new Map();
+  for(const x of valid){
+    const id=x.objectId+"|"+x.side;
+    if(!groups.has(id))groups.set(id,[]);
+    groups.get(id).push(x);
+  }
+  const cycles=[],equipmentSummary=[],timeline=[];
+  const maxDate=asOf||"";
+  for(const machine of machines.values()){
+    const selected=[...groups.entries()].filter(([k])=>k.startsWith(machine.id+"|"));
+    let totalEvents=0,completed=0,initialEstimates=0;
+    let totalCost=0;const orderSet=new Set(),intervalDays=[];
+    for(const [,events] of selected){
+      events.sort((a,b)=>a.dateReference.localeCompare(b.dateReference)||a.order.localeCompare(b.order));
+      const dedup=[];
+      for(const e of events){
+        const last=dedup.at(-1);
+        if(last&&diffDays(last.dateReference,e.dateReference)<=7){
+          last.mergedOrders.push(e.order);
+          last.mergedRecords.push(e);
+          continue;
+        }
+        dedup.push({...e,mergedOrders:[e.order],mergedRecords:[e]});
+      }
+      const start=machine.commissioned||machine.acquisition;
+      const startType=machine.commissioned?"Comissionamento":machine.acquisition?"Aquisição (aproximação)":"Desconhecida";
+      for(let i=0;i<dedup.length;i++){
+        const event=dedup[i],prev=dedup[i-1];
+        const anchor=i===0?start:prev.dateReference;
+        const anchorOrder=i===0?"":prev.order;
+        const days=anchor&&event.dateReference>=anchor?diffDays(anchor,event.dateReference):null;
+        const kind=i===0?"Primeira troca observada":"Troca subsequente";
+        const quality=i===0
+          ?machine.commissioned?"Primeira vida aproximada (confirmar esteira original)"
+            :machine.acquisition?"Tempo desde aquisição (NÃO é vida confirmada)"
+            :"Sem marco inicial"
+          :"Intervalo estimado entre ordens (não horas operadas)";
+        const aggregateCost=event.mergedRecords.reduce((t,r)=>t+r.costReal,0);
+        cycles.push({
+          equipment:machine.equipment,asset:machine.name,tag:machine.tag,family:machine.family,
+          side:event.side,cycleType:kind,sequence:i+1,
+          previousOrder:anchorOrder,order:event.order,
+          groupedOrders:event.mergedOrders.join("; "),
+          begin:anchor||"",end:event.dateReference,days:days??"",
+          referenceSource:event.referenceSource,initialSource:i===0?startType:"Troca anterior",
+          confidence:event.evidence,quality,
+          costOfOrders:aggregateCost,partNumbers:event.mergedRecords.map(r=>r.reservedMaterials).filter(Boolean).join("; "),
+          materialRows:event.mergedRecords.reduce((t,r)=>t+r.reserveCount,0),
+          operationalProof:"Pendente: confirmar execução e movimento de material"
+        });
+        totalEvents++;if(i>0&&days!==null){completed++;intervalDays.push(days)}
+        if(i===0&&days!==null)initialEstimates++;
+        for(const part of event.mergedRecords)orderSet.add(part.order);
+      }
+      if(dedup.length&&maxDate&&dedup.at(-1).dateReference<=maxDate){
+        const last=dedup.at(-1);
+        timeline.push({
+          equipment:machine.equipment,asset:machine.name,family:machine.family,
+          side:last.side,lastOrder:last.order,lastDate:last.dateReference,
+          asOf:maxDate,elapsedDays:diffDays(last.dateReference,maxDate),
+          description:"Tempo desde última ordem candidata; ciclo em aberto/censurado, NÃO uma falha observada"
+        });
+      }
+    }
+    const machineAudit=audit.filter(x=>x.objectId===machine.id);
+    const acceptedAudit=machineAudit.filter(x=>x.accepted==="SIM");
+    const withoutSide=acceptedAudit.filter(x=>x.side==="não informado").length;
+    const allCandidateOrders=[...new Set(machineAudit.filter(x=>x.operationClass==="troca de esteira / conjunto").map(x=>x.order))];
+    totalCost=machineAudit.reduce((sum,x)=>sum+x.costReal,0);
+    equipmentSummary.push({
+      equipment:machine.equipment,asset:machine.name,tag:machine.tag,family:machine.family,
+      commissioning:machine.commissioned,acquisition:machine.acquisition,
+      acceptedOrders:orderSet.size,observedSides:totalEvents,
+      subsequentIntervals:completed,meanDays:intervalDays.length?mean(intervalDays):"",
+      firstLifeEstimates:initialEstimates,withoutSide,
+      candidateOrders:allCandidateOrders.join("; "),
+      acceptedOrderNumbers:[...orderSet].join("; "),
+      costOfRelatedOrders:totalCost,
+      status:totalEvents?"Com trocas candidatas":"Sem troca completa validada no recorte"
+    });
+  }
+  equipmentSummary.sort((a,b)=>a.family.localeCompare(b.family,"pt-BR")||a.asset.localeCompare(b.asset,"pt-BR"));
+  cycles.sort((a,b)=>a.family.localeCompare(b.family,"pt-BR")||a.asset.localeCompare(b.asset,"pt-BR")||
+    a.side.localeCompare(b.side,"pt-BR")||a.sequence-b.sequence);
+  audit.sort((a,b)=>a.asset.localeCompare(b.asset,"pt-BR")||a.dateReference.localeCompare(b.dateReference)||a.order.localeCompare(b.order));
+  return {equipmentSummary,cycles,audit,openCycles:timeline,
+    metrics:{trackedEquipment:machines.size,ordersAudited:audit.length,
+      approvedOrders:new Set(valid.map(x=>x.order)).size,
+      closedIntervals:cycles.filter(x=>x.cycleType==="Troca subsequente"&&x.days!=="").length,
+      firstEstimates:cycles.filter(x=>x.cycleType==="Primeira troca observada"&&x.days!=="").length,
+      missingSide:audit.filter(x=>x.accepted==="SIM"&&x.side==="não informado").length}
+  };
+}
+
+export const SESSION_FORMAT="sap-history-session";
+export const SESSION_VERSION=1;
+export function serializeSession(bases,loaded=[],settings={}) {
+  return {format:SESSION_FORMAT,version:SESSION_VERSION,
+    savedAt:new Date().toISOString(),
+    description:"BACKUP LOCAL CONFIDENCIAL: contém as informações originais carregadas pelo usuário",
+    bases:Object.fromEntries(ROLES.map(role=>[role,Array.isArray(bases[role])?bases[role]:[]])),
+    loaded,settings};
+}
+export function restoreSession(value) {
+  if(!value||typeof value!=="object"||value.format!==SESSION_FORMAT||value.version!==SESSION_VERSION)
+    throw new Error("Arquivo não é uma sessão SAP suportada (formato/versão).");
+  if(!value.bases||typeof value.bases!=="object")throw new Error("Sessão sem bases SAP.");
+  const bases={};
+  for(const role of ROLES){
+    const rows=value.bases[role]||[];
+    if(!Array.isArray(rows)||rows.length>1000000||rows.some(x=>!x||typeof x!=="object"||Array.isArray(x)))
+      throw new Error("Base inválida na sessão: "+role);
+    bases[role]=rows;
+  }
+  return {bases,loaded:Array.isArray(value.loaded)?value.loaded:[],
+    settings:value.settings&&typeof value.settings==="object"&&!Array.isArray(value.settings)?value.settings:{}};
 }
