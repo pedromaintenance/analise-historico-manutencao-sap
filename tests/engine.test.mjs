@@ -170,3 +170,13 @@ test("troca de módulos é parcial, e não substituição da esteira completa",(
  const m=createModel({orders:[ord("M1","2026-01-01","TROCAR MÓDULOS DA ESTEIRA LD","ENTE")]});
  assert.equal(classifyRodante(m.orders[0]).operationClass,"troca mista / componentes adicionais");
 });
+
+test("data-base futura não gera evento retroativo",()=>{
+ const m=createModel({equipment,orders:[
+   ord("OS-T01","2026-01-01","TROCAR ESTEIRA LD","ENTE"),
+   ord("OS-T02","2026-12-01","TROCAR ESTEIRA LD","ENTE")
+ ]});
+ const r=analyzeRodante(m,{asOf:"2026-06-01"});
+ assert.equal(r.futureDated,1);
+ assert.equal(r.intervals.length,0);
+});
