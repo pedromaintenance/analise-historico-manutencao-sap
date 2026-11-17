@@ -57,3 +57,19 @@ Uma troca simultânea dos lados esquerdo e direito representa duas esteiras fís
 O aplicativo aceita tanto sessões **.json** quanto sessões **.json.gz**. O formato compactado usa as APIs nativas CompressionStream e DecompressionStream em navegadores compatíveis, sem biblioteca ou servidor adicional. Para reabrir, selecione qualquer um dos dois formatos na opção Restaurar sessão. As duas variantes preservam todas as fontes carregadas e configurações, inclusive dados confidenciais: mantenha somente em dispositivo ou diretório corporativo autorizado.
 
 O relatório da tela Ciclo de vida preserva o número exato da ordem, o lado da máquina, a OS anterior, as reservas MB24, os custos e a qualidade da identidade do ativo. O campo de ordenação da IW39 e da IW29 é usado para conciliação, e uma TAG encontrada apenas na descrição da OS é sinalizada como vínculo de baixa confiança para revisão.
+
+## Versão 0.4 — Dashboard interativo por equipamento
+
+A nova aba **05 · Dashboard** transforma o ciclo de vida da tela 04 em um relatório executivo e auditável:
+
+- Selecionar/excluir equipamentos individualmente, localizar por TAG/modelo e incluir/excluir todos os resultados filtrados; as escolhas são preservadas no backup de sessão JSON (não são enviadas ao servidor).
+- Cada painel de máquina contém **TAG, família de equipamento, modelo e marco inicial de operação**. Quando só houver Data de aquisição, o marco é rotulado como *estimado*.
+- Dois indicadores: **ciclo de vida em dias** (priorizando mediana de intervalos consecutivos; na ausência, tempo estimado da primeira troca) e **número de ordens de substituição candidatas**. Uma OS para as duas esteiras conta como uma ordem, não duas.
+- Tabela por máquina com **número SAP da OS, descrição, Data-base, Fim da avaria, Data de Entrada, custo real da ordem** e classificação.
+- Ao clicar em **Materiais (N)** na mesma linha, abre o detalhamento das reservas MB24. Sem reserva disponível, a tabela informa a limitação sem presumir ausência de consumo.
+- Filtro para exibir somente ordens de troca ou todas as intervenções de rodante.
+- **Exportar dashboard HTML:** gera no computador um documento interativo independente e sem bibliotecas externas, incorporando **somente os equipamentos selecionados**. Pode ser aberto fora do sistema e impresso em PDF pelo navegador.
+
+**CONFIDENCIALIDADE:** o HTML exportado contém as ordens, valores e materiais das máquinas selecionadas. Não publique os arquivos gerados no repositório, GitHub Pages ou serviços externos. A versão pública contém apenas o gerador sem dados.
+
+Para reabrir as seleções sem repetir cargas, exporte a sessão JSON (normal ou GZIP) após marcar as máquinas e restaure-a na próxima visita.
