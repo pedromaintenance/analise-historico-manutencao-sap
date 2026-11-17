@@ -51,7 +51,7 @@ test("calcula intervalos com data real e o mesmo item e lado",()=>{
   ord("OS-11","2026-05-01","SUBSTITUIR ESTEIRA LADO DIREITO","ENCE","2026-05-05"),
   ord("OS-12","2026-06-01","TROCAR ROLETE LD","ENTE","2026-06-05")
  ]});
- const r=analyzeRodante(m,{component:"esteira completa"});
+ const r=analyzeRodante(m,{component:"esteira completa",allowWeak:true});
  assert.equal(r.intervals.length,1); assert.equal(r.intervals[0].days,120);
  assert.equal(r.meanDays,120);
 });
@@ -61,7 +61,7 @@ test("datas planejadas só entram em modo exploratório",()=>{
   ord("OS-22","2026-04-11","SUBSTITUIR ESTEIRA L/D")
  ]});
  assert.equal(analyzeRodante(m,{allowProxy:false}).intervals.length,0);
- const r=analyzeRodante(m,{allowProxy:true});
+ const r=analyzeRodante(m,{allowProxy:true,allowWeak:true});
  assert.equal(r.intervals.length,1);assert.equal(r.intervals[0].days,100);
  assert.match(r.intervals[0].quality,/estimado/);
 });
@@ -71,7 +71,7 @@ test("aglutina o mesmo evento em janela de sete dias",()=>{
   ord("OS-32","2026-01-04","SUBSTITUIR ESTEIRA LD","ENTE","2026-01-04"),
   ord("OS-33","2026-04-01","SUBSTITUIR ESTEIRA LD","ENTE","2026-04-01")
  ]});
- const r=analyzeRodante(m);assert.equal(r.audit.length,2);assert.equal(r.intervals.length,1);assert.equal(r.clustered,1);
+ const r=analyzeRodante(m,{allowWeak:true});assert.equal(r.audit.length,2);assert.equal(r.intervals.length,1);assert.equal(r.clustered,1);
 });
 test("enriquecimento preserva todas as colunas originais",()=>{
  const m=createModel({equipment,orders:[{...ord("OS-41","2026-01-01","INSPECIONAR"),"Coluna personalizada":"preservada"}]});
@@ -100,7 +100,7 @@ test("status customizados funcionam e cancelamento tem precedência",()=>{
   ord("OS-72","2026-04-01","SUBSTITUIR ESTEIRA LD","FINAL","2026-04-05"),
   ord("OS-73","2026-07-01","SUBSTITUIR ESTEIRA LD","FINAL VOID","2026-07-05")
  ]});
- const r=analyzeRodante(m,{completionStatuses:["FINAL"],cancellationStatuses:["VOID"]});
+ const r=analyzeRodante(m,{completionStatuses:["FINAL"],cancellationStatuses:["VOID"],allowWeak:true});
  assert.equal(r.intervals.length,1);assert.equal(r.eligible.length,2);
 });
 test("não agrega médias de componentes diferentes num indicador global",()=>{
@@ -110,7 +110,7 @@ test("não agrega médias de componentes diferentes num indicador global",()=>{
   ord("OS-83","2026-01-01","SUBSTITUIR ROLETE LD","ENTE","2026-01-07"),
   ord("OS-84","2026-05-01","SUBSTITUIR ROLETE LD","ENTE","2026-05-07")
  ]});
- const r=analyzeRodante(m,{component:"todos"});
+ const r=analyzeRodante(m,{component:"todos",allowWeak:true});
  assert.equal(r.intervals.length,2);
  assert.equal(r.meanDays,null);
  assert.equal(r.mixingComponents,true);
@@ -179,4 +179,46 @@ test("data-base futura não gera evento retroativo",()=>{
  const r=analyzeRodante(m,{asOf:"2026-06-01"});
  assert.equal(r.futureDated,1);
  assert.equal(r.intervals.length,0);
+});
+
+test("data de aquisição funciona como aproximação quando comissionamento falta",()=>{
+ const eq=[{Equipamento:"EQ-TRACK", "Denominação do objeto técnico":"TRATOR FICTICIO 050-888",
+   "Nº inventário":"050-888","Data de aquisição":"01/01/2025"}];
+ const orders=[{Ordem:"OS-888","Tipo de ordem":"PM01",Equipamento:"EQ-TRACK",
+   "Texto breve":"TROCAR ESTEIRAS LD E LE","Data-base do início":"01/01/2026",
+   "Status do sistema":"ENTE","Custos tot.reais":100000}];
+ const m=createModel({equipment:eq,orders,reservations:[{"Nº reserva":"RES-888",
+   Ordem:"OS-888",Material:"MAT-888","Texto breve material":"ESTEIRA COMPLETA",
+   "Qtd.necessária":2}]});
+ const r=analyzeRodante(m,{asOf:"2026-11-17"});
+ assert.equal(r.initialLifeEstimates.length,2);
+ assert.equal(r.initialLifeEstimates[0].elapsedDays,365);
+ assert.equal(r.initialLifeEstimates[0].originSource,"aquisição (não é comissionamento)");
+});
+test("comissionamento explícito tem precedência sobre aquisição",()=>{
+ const eq=[{Equipamento:"EQ-TRACK", "Denominação do objeto técnico":"TRATOR FICTICIO 050-888",
+   "Data de aquisição":"01/01/2025","Data de entrada em serviço":"01/03/2025"}];
+ const m=createModel({equipment:eq,orders:[{Ordem:"OS-888","Tipo de ordem":"PM01",
+   Equipamento:"EQ-TRACK","Texto breve":"TROCAR ESTEIRA LD","Data-base do início":"01/03/2026",
+   "Status do sistema":"ENTE","Custos tot.reais":100000}]});
+ const r=analyzeRodante(m,{asOf:"2026-11-17"});
+ assert.equal(r.initialLifeEstimates.length,1);
+ assert.equal(r.initialLifeEstimates[0].elapsedDays,365);
+ assert.equal(r.initialLifeEstimates[0].originSource,"entrada em serviço");
+});
+test("FPS e parafusos da esteira não viram troca de conjunto",()=>{
+ const m=createModel({orders:[
+  {Ordem:"A","Tipo de ordem":"PM01","Texto breve":"SUBSTITUIR PARAFUSOS DA ESTEIRA LD","Status do sistema":"ENTE","Custos tot.reais":1000},
+  {Ordem:"B","Tipo de ordem":"PM01","Texto breve":"SUBSTITUIÇÃO FPS","Status do sistema":"ENTE","Custos tot.reais":1000}
+ ],notes:[{"Tipo de nota":"M1","Nota":"N1",Ordem:"B","Texto breve":"TROCA ESTEIRA"}]});
+ assert.equal(classifyRodante(m.orders[0]).operationClass,"troca mista / componentes adicionais");
+ assert.equal(classifyRodante(m.orders[1]).operationClass,"menção / indeterminado");
+ assert.equal(analyzeRodante(m,{asOf:"2026-11-17"}).intervals.length,0);
+});
+test("reserva apenas de parafusos não valida troca completa, mesmo com status e custo",()=>{
+ const m=createModel({orders:[{Ordem:"A","Tipo de ordem":"PM01","Texto breve":"TROCAR ESTEIRA LD",
+   "Status do sistema":"ENTE","Custos tot.reais":1000,"Data-base do início":"01/01/2026"}],
+   reservations:[{"Nº reserva":"A-1",Ordem:"A",Material:"MAT-P","Texto breve material":"PARAFUSO SEXTAVADO"}]});
+ assert.equal(classifyRodante(m.orders[0]).eventStrong,false);
+ assert.equal(analyzeRodante(m,{asOf:"2026-11-17"}).initialLifeEstimates.length,0);
 });
