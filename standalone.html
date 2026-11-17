@@ -128,6 +128,7 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
    </select>
    <input id="assetFilter" placeholder="Filtrar máquina, TAG ou denominação">
    <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="allowProxy" checked> Usar datas de referência (Data-base → Fim da avaria → Entrada)</label>
+   <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="allowWeak"> Incluir eventos com evidência insuficiente</label>
   </div><div class="toolbar">
    <label for="closingStatuses">Status indicativos de conclusão:</label><input id="closingStatuses" value="ENTE ENCE" aria-label="Status conclusivos separados por espaço">
    <label for="cancelStatuses">Status de cancelamento:</label><input id="cancelStatuses" value="NEXE CANC" aria-label="Status de cancelamento separados por espaço">
@@ -142,6 +143,9 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
   <h3 style="margin-top:18px">Materiais associados às ordens — MB24</h3>
   <div class="tablewrap"><table id="materialsOrderTable"></table></div>
   <p class="muted" id="materialOrderCount"></p>
+  <h3 style="margin-top:18px">Primeira troca observada — aquisição / entrada em serviço</h3>
+  <p class="help">A data de entrada em serviço, quando fornecida no cadastro, prevalece sobre a Data de aquisição. A aquisição oferece somente o tempo transcorrido desde a compra, não prova a vida de uma esteira original. É possível acrescentar a coluna “Data de entrada em serviço” na planilha de equipamentos antes do upload.</p>
+  <div class="tablewrap"><table id="firstLifeTable"></table></div>
   <h3 style="margin-top:18px">Comparação entre objetos técnicos</h3>
   <div id="lifeChart" style="margin:10px 0 18px"></div>
   <h3>Vida entre eventos por objeto, componente e lado</h3>
@@ -208,6 +212,8 @@ const fields = {
   closedDate: ["Data de conclusão", "Data de conclusao"],
   createdDate: ["Data de entrada", "Criado em", "Data da nota"],
   model: ["Denominação do tipo", "Modelo"],
+  acquisitionDate: ["Data de aquisição", "Data aquisição", "Dt. aquisição"],
+  serviceStart: ["Data entrada em serviço","Data de entrada em serviço","Data de comissionamento","Início em serviço","Início de operação","Data de início de operação"],
   manufacturer: ["Fabricante do imobilizado", "Fabricante"],
   inventory: ["Nº inventário", "TAG conciliado", "TAG descrição"],
   sortKey: ["Campo de ordenação", "TAG / Campo ordenação", "TAG conciliado"],
@@ -279,6 +285,7 @@ function normalizeRows(role, rows) {
     if (role === "equipment") return {...common,
       id: pick(m,"equipment"), model: pick(m,"model"),
       manufacturer: pick(m,"manufacturer"), inventory: pick(m,"inventory"),
+      acquisitionDate:pick(m,"acquisitionDate"),serviceStart:pick(m,"serviceStart"),
       category: pick(m,"category") };
     if (role === "locations") return {...common,
       id: pick(m,"fl"), type: pick(m,"typeObject"), category: pick(m,"category"),sortKey:pick(m,"sortKey") };
@@ -444,7 +451,8 @@ const dictionaryFields=[
   ["Criado por","createdBy"],["Técnico / Notificador","notifier"],
   ["Tipo de ordem / nota","type"],["Centro de trabalho","workCenter"],
   ["Grupo planejador","planner"],["Centro de custo","costCenter"],
-  ["Modelo","model"],["Fabricante","manufacturer"],["Categoria","category"],["Campo de ordenação","sortKey"],
+  ["Modelo","model"],["Fabricante","manufacturer"],["Categoria","category"],
+  ["Data de aquisição","acquisitionDate"],["Entrada em serviço","serviceStart"],["Campo de ordenação","sortKey"],
   ["Código de catálogo","code"],["Material","material","description"],
   ["Unidade de medida","unit"]
 ];
@@ -480,7 +488,8 @@ const activityPattern=/\b(TROC\w*|SUBST\w*|REPLAC\w*|RENOV\w*)\b/;
 const installationPattern=/\b(MONTAGEM|INSTAL\w*|REINSTAL\w*)\b/;
 const preventivePattern=/\b(INSPEC\w*|VERIFIC\w*|LUBRIF\w*|AVALI\w*|MEDI\w*|TENSION\w*|AJUST\w*|DIAGNOSTIC\w*)\b/;
 function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancellationStatuses=["NEXE","CANC"]}={}) {
-  const main=key([order.description,order.noteDescription].filter(Boolean).join(" "));
+  // A descrição da OS prevalece. Texto da notificação é contexto, não prova da intervenção.
+  const main=key(order.description||order.noteDescription);
   const reserveText=key((order.reserves||[]).map(x=>x.description).join(" "));
   const timeline=chronology(order);
   let component="";
@@ -491,21 +500,31 @@ function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancellationS
   const materialOnly=Boolean(component&&!narrativeComponent);
   if(/CORRENTE\s+DE\s+AVANCO/.test(main)&&!/ESTEIR|RODANTE|ROLETE|RODA\s+GUIA|RODA\s+MOTRIZ/.test(main))component="";
   const replacement=activityPattern.test(main);
+  const hasFasteners=/\b(PARAFUSOS?|PORCAS?|ARRUELAS?|PRESILHAS?)\b/.test(main);
+  const hasPins=/\b(PINOS?|BUCHAS?|ELOS?)\b/.test(main);
+  const hasSegments=/\b(SEGMENTOS?|RODA\s+GUIA|ROLE(TES?|RS?))\b/.test(main);
+  const hasTension=/\b(TENSOR|VALVULA\s+TENS\w*|TENSION\w*)\b/.test(main);
+  const partialOnly=hasFasteners||hasPins||hasSegments||hasTension||/\b(MODULOS?|FPS|SAPATAS?)\b/.test(main);
   const installation=installationPattern.test(main)&&!replacement;
   const adjustment=/\b(AJUST\w*|REPOSIC\w*|RECOLOC\w*|TENSION\w*|TENCION\w*|ESTIC\w*|ALINH\w*)\b|CAIU\s+(?:A\s+)?ESTEIRA|ESTEIRA\s+SAIU/.test(main)&&!replacement;
   const inspection=preventivePattern.test(main)&&!replacement&&!installation&&!adjustment;
   const logistics=/\b(TRANSPORTE|FRETE|ENVIO|COMPRA|AQUISICAO|FORNECIMENTO|MATERIAL\s+PARA|ORCAMENTO|COTACAO)\b/.test(main)&&!replacement;
   const hasTrack=/\bESTEIRAS?\b|\bESTIRAS?\b|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+(?:DE|DA)\s+ESTEIRA/.test(main);
-  const hasPart=Object.entries(patterns).some(([name,re])=>name!=="esteira completa"&&name!=="material rodante geral"&&re.test(main));
+  const hasPart=partialOnly||Object.entries(patterns).some(([name,re])=>name!=="esteira completa"&&name!=="material rodante geral"&&re.test(main));
   let operationClass="menção / indeterminado";
   if(logistics)operationClass="materiais / logística";
   else if(materialOnly)operationClass="indício apenas por reserva";
   else if(replacement&&hasTrack&&!hasPart)operationClass="troca de esteira / conjunto";
-  else if(replacement&&hasTrack&&hasPart)operationClass="troca mista / componentes adicionais";
+  else if(replacement&&hasTrack&&hasPart)operationClass="troca parcial / componente";
   else if(replacement)operationClass="troca parcial / componente";
   else if(adjustment)operationClass="ajuste / reposicionamento";
   else if(inspection)operationClass="inspeção / diagnóstico";
   else if(installation)operationClass="montagem / instalação";
+  const reservationRows=(order.reserves||[]);
+  const fullMaterial=reservationRows.some(x=>
+    /ESTEIRA\s+COMPLETA|^ESTEIRA\s+(?:\d|CAT|D9|D6|GRUPO)|^LAGARTA\s+\w+|GRUPO\s+(?:DE\s+)?ESTEIRA|CONJ(?:UNTO)?\s+(?:DE\s+)?ELOS\s+CORRENTE|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+COMPLETA/.test(key(x.description)));
+  const reservationHasParts=reservationRows.length>0&&!fullMaterial;
+  // Evidência de material reservado serve para triangulação, não prova aplicação.
   const status=key(order.sys).split(" ");
   const cancelled=cancellationStatuses.map(key).some(x=>status.includes(x));
   const closed=completionStatuses.map(key).some(x=>status.includes(x));
@@ -526,9 +545,16 @@ function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancellationS
   else if(isCandidate&&costReal>0)evidence="troca indicada por texto e custo registrado";
   else if(isCandidate)evidence="troca planejada / sem confirmação";
   else if(logistics)evidence="material / logística — não comprova instalação";
-  const evidenceLevel=cancelled?"excluída":isCandidate&&closed?"média":isCandidate&&costReal>0?"média":isCandidate?"baixa":"não elegível";
+  const eventStrong=Boolean(isCandidate&&closed&&costReal>0&&
+    operationClass==="troca de esteira / conjunto"&&
+    (!reservationHasParts));
+  const evidenceLevel=cancelled?"excluída":
+    eventStrong&&fullMaterial?"alta (triangulação)":
+    eventStrong?"média (sem MB24 da troca)":
+    isCandidate?"revisão necessária":"não elegível";
   return {component,side,replacement,installation,inspection,adjustment,operationClass,
-    evidence,evidenceLevel,isCandidate,closed,cancelled,costReal,costPlanned,materialOnly,
+    evidence,evidenceLevel,isCandidate,eventStrong,fullMaterial,reservationHasParts,
+    closed,cancelled,costReal,costPlanned,materialOnly,
     ...timeline,dateReal:timeline.actual,dateProxy:timeline.reference,
     contextOnly:!component&&/ESTEIR|RODANTE/.test(key(order.flLabel))};
 }
@@ -536,7 +562,7 @@ const diffDays=(a,b)=>(asDate(b).getTime()-asDate(a).getTime())/86400000;
 const mean=v=>v.length?v.reduce((a,b)=>a+b,0)/v.length:null;
 const median=v=>{if(!v.length)return null;const t=[...v].sort((a,b)=>a-b);return t.length%2?t[(t.length-1)/2]:(t[t.length/2-1]+t[t.length/2])/2;};
 function analyzeRodante(model,{
-  allowProxy=true,component="esteira completa",assetPrefix="",asOf=isoDate(new Date()),
+  allowProxy=true,allowWeak=false,component="esteira completa",assetPrefix="",asOf=isoDate(new Date()),
   completionStatuses=["ENTE","ENCE"],cancellationStatuses=["NEXE","CANC"]
 }={}) {
   const candidates=[];
@@ -585,7 +611,7 @@ function analyzeRodante(model,{
   const samples=[];
   for(const c of eligible){
     const a=c.analysis;
-    const supported=a.closed||a.costReal>0;
+    const supported=a.eventStrong||(allowWeak&&(a.closed||a.costReal>0));
     const dated=Boolean(a.reference);
     // Componente ou lado desconhecido não forma sequência de trocas comparável.
     if(!supported||!dated||a.side==="não informado"||(asOf&&a.reference>asOf))continue;
@@ -596,7 +622,7 @@ function analyzeRodante(model,{
     for(const side of a.side==="ambos"?["direito","esquerdo"]:[a.side])
       samples.push({asset:c.identity.id,label:c.identity.label,tag:c.identity.tag,
         component:a.component,side,date:selectedDate,dateSource:allowProxy?a.source:"data real",
-        order:c.id,confidence:a.closed?"status indicativo":"custo registrado",
+        order:c.id,confidence:a.evidenceLevel,
         costReal:a.costReal,costPlanned:a.costPlanned,
         source:c});
   }
@@ -607,7 +633,7 @@ function analyzeRodante(model,{
     if(!groups.has(group))groups.set(group,[]);
     groups.get(group).push(item);
   }
-  const intervals=[],audit=[];let clustered=0;
+  const intervals=[],audit=[],initialLifeEstimates=[];let clustered=0;
   for(const [group,events] of groups){
     events.sort((a,b)=>a.date.localeCompare(b.date)||a.order.localeCompare(b.order));
     const distinct=[];
@@ -624,6 +650,26 @@ function analyzeRodante(model,{
       orders:x.orders.join("; "),realCost:x.costReal,plannedCost:x.costPlanned,
       origin:allowProxy?"referência de planejamento/avaria/entrada":"data de execução",
       warning:"Agrupamento de até 7 dias é provisório e exige validação técnica"})));
+    // Primeira troca observada: utilizar entrada real em serviço quando fornecida;
+    // aquisição apenas aproxima/limita tempo desde compra.
+    if(distinct.length) {
+      const first=distinct[0];
+      const eq=first.asset.startsWith("EQ:")?model.byEquip.get(first.asset.slice(3)):null;
+      const serviceDate=isoDate(eq?.serviceStart);
+      const acquisition=isoDate(eq?.acquisitionDate);
+      const originDate=serviceDate||acquisition;
+      const source=serviceDate?"entrada em serviço":"aquisição (não é comissionamento)";
+      if(originDate&&first.date>=originDate) {
+        initialLifeEstimates.push({asset:first.label,tag:first.tag,component:first.component,
+          side:first.side,originDate,originSource:source,firstDate:first.date,
+          elapsedDays:diffDays(originDate,first.date),observedReplacements:distinct.length,
+          orders:first.orders.join("; "),evidence:first.confidence,
+          quality:serviceDate
+            ?"estimativa da primeira esteira se o histórico desde entrada em serviço for completo"
+            :"tempo máximo desde aquisição até a primeira troca observada; não é vida comprovada",
+          costFirstOrder:first.costReal});
+      }
+    }
     for(let i=1;i<distinct.length;i++){
       const earlier=distinct[i-1],later=distinct[i];
       const days=diffDays(earlier.date,later.date);
@@ -648,14 +694,16 @@ function analyzeRodante(model,{
   const allComponents=new Set(intervals.map(x=>x.component));
   const mixingComponents=allComponents.size>1;
   return {candidates,eligible,financialOrders,costByClass,materialsByOrder,
-    intervals,audit,summary,meanDays:mixingComponents?null:mean(intervals.map(x=>x.days)),
+    intervals,audit,initialLifeEstimates,summary,meanDays:mixingComponents?null:mean(intervals.map(x=>x.days)),
     medianDays:mixingComponents?null:median(intervals.map(x=>x.days)),
     mixingComponents,clustered,
     missingSide:eligible.filter(x=>x.analysis.side==="não informado").length,
+    excludedWeak:eligible.filter(x=>!x.analysis.eventStrong).length,
     futureDated:eligible.filter(x=>asOf&&x.analysis.reference>asOf).length,
     withoutCost:candidates.filter(x=>x.analysis.costReal===0).length,
     withoutReservation:candidates.filter(x=>!x.reserves.length).length,
     dataMode:allowProxy?"datas-base/avaria/entrada (proxy)":"somente data real",
+    evidenceMode:allowWeak?"exploratório - inclui evidências fracas":"prudente - custo, status e materiais triangulados",
     excluded:eligible.filter(x=>!x.analysis.reference||(asOf&&x.analysis.reference>asOf)||x.analysis.side==="não informado"||
       !(x.analysis.closed||x.analysis.costReal>0)).length};
 }
@@ -828,7 +876,8 @@ function renderRodante(){
  const component=$("componentFilter").value,assetPrefix=$("assetFilter").value;
  const completionStatuses=$("closingStatuses").value.split(/[\s,;]+/).filter(Boolean);
  const cancellationStatuses=$("cancelStatuses").value.split(/[\s,;]+/).filter(Boolean);
- const r=analyzeRodante(m,{allowProxy,component,assetPrefix,completionStatuses,cancellationStatuses});
+ const allowWeak=$("allowWeak").checked;
+ const r=analyzeRodante(m,{allowProxy,allowWeak,component,assetPrefix,completionStatuses,cancellationStatuses});
  state.report=r;
  metrics("rodanteMetrics",[
   [num(r.candidates.length),"Ordens relacionadas"],[num(r.eligible.length),"Candidatas a substituição"],
@@ -838,7 +887,7 @@ function renderRodante(){
  $("rodanteWarning").textContent=(allowProxy
    ?"CRONOLOGIA EXPLORATÓRIA: utiliza Data-base de início prioritariamente; na ausência dela, Fim da avaria e então Data de Entrada. Isso não equivale à data real de execução."
    :"MODO DATA REAL: sem data de execução preenchida, não será calculado intervalo. As tabelas financeiras continuam disponíveis.")
-  +" Ordens com lado não informado: "+num(r.missingSide)+" (não entram em intervalos). Datas-base futuras: "+num(r.futureDated)+" (não entram em eventos). Ordens sem reserva nesta MB24: "+num(r.withoutReservation)+"."
+  +" Evidências insuficientes: "+num(r.excludedWeak)+". Ordens sem lado: "+num(r.missingSide)+". Datas futuras: "+num(r.futureDated)+". Sem reserva nesta MB24: "+num(r.withoutReservation)+"."
   +(r.mixingComponents?" Não misturamos médias de componentes diferentes.":"");
  const maxMean=Math.max(1,...r.summary.map(x=>x.meanDays));
  $("lifeChart").innerHTML=r.summary.length?r.summary.slice(0,16).map(x=>"<div style=\"display:grid;grid-template-columns:minmax(150px,1fr) 2fr auto;gap:12px;align-items:center;margin:9px 0\"><span class=\"muted\">"+esc(x.asset)+" · "+esc(x.side)+"</span><div class=\"bar\"><i style=\"width:"+Math.round(100*x.meanDays/maxMean)+"%\"></i></div><strong>"+esc(fmtDays(x.meanDays))+"</strong></div>").join(""):"<p class=\"muted\">Ainda não há pares comparáveis: confira tipo de troca, lado, status e datas de referência.</p>";
@@ -855,6 +904,9 @@ function renderRodante(){
   x.order,x.asset,x.operationClass,x.code,x.description,x.unit,x.required,x.registered,x.deleted,x.finalFlag
  ]),200);
  $("materialOrderCount").textContent=num(r.materialsByOrder.length)+" linhas da MB24 relacionadas a ordens filtradas; exibindo até 200. *Valores monetários na moeda da exportação SAP (não validada pelo programa).";
+ table("firstLifeTable",["Ativo","Lado","Base do cálculo","Data inicial","Primeira troca observada","Dias estimados","Trocas observadas","OS","Evidência"],r.initialLifeEstimates.map(x=>[
+  x.asset,x.side,x.originSource,x.originDate,x.firstDate,x.elapsedDays,x.observedReplacements,x.orders,x.evidence
+ ]),200);
  table("intervalTable",["Ativo","Componente","Lado","Pares","Média estimada","Mediana","Mínimo","Máximo"],r.summary.map(x=>[
   x.asset,x.component,x.side,x.intervals,fmtDays(x.meanDays),fmtDays(x.medianDays),fmtDays(x.minDays),fmtDays(x.maxDays)
  ]),150);
@@ -880,6 +932,7 @@ for(const id of ["searchDictionary","searchMaterials","searchOrders","assetFilte
 $("filterDictionary").onchange=renderCatalog;
 $("componentFilter").onchange=renderRodante;
 $("allowProxy").onchange=renderRodante;
+$("allowWeak").onchange=renderRodante;
 $("closingStatuses").oninput=renderRodante;
 $("cancelStatuses").oninput=renderRodante;
 $("exportDictionary").onclick=()=>downloadSheets("dicionario_tecnico_sap",[{name:"Dicionarios",rows:state.model.dictionaries}]);
@@ -892,6 +945,7 @@ $("exportRodante").onclick=()=>{
  downloadSheets("relatorio_rodante_v2",[
   {name:"ResumoVida",rows:r.summary},{name:"Intervalos",rows:r.intervals},
   {name:"Eventos",rows:r.audit},
+  {name:"PrimeiraVida",rows:r.initialLifeEstimates},
   {name:"CustosPorClasse",rows:r.costByClass},
   {name:"CustosPorOrdem",rows:r.financialOrders},
   {name:"MateriaisPorOS",rows:r.materialsByOrder},
