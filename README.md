@@ -35,3 +35,7 @@ A aba **Ordens & rodante** agora associa os custos previstos e reais da IW39 às
 A referência temporal padrão é **Data-base de início → Fim da avaria (IW29) → Data de Entrada (IW39)**. Cada fonte é identificada na exportação. A Data-base é **planejamento**, não comprovação de execução; ordens futuras e ordens sem lado conhecido não criam pares de substituição.
 
 O relatório exportado contém abas independentes: resumo de vida, intervalos, eventos, custos por classe, custos por ordem, materiais por OS e triagem de candidatas. Custos da ordem podem incluir mais que material rodante, e uma reserva MB24 não comprova consumo. Veja a metodologia completa em `docs/METODOLOGIA.md`.
+
+## Primeira vida observada de esteiras
+
+O sistema disponibiliza agora uma aba **PrimeiraVida** no relatório e uma tabela no painel para equipamentos com uma ou mais trocas observadas. A leitura do equipamento aceita `Data de aquisição` e, opcionalmente, `Data de entrada em serviço` / `Data de comissionamento`; o segundo campo prevalece. As origens de datas e a limitação de estimativa são indicadas. O modo prudente evita incluir na vida trocas de parafusos, FPS e outras intervenções parciais ou ordens sem evidência financeira/material. A seleção de eventos com evidência fraca é explicitamente opt-in.
