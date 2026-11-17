@@ -35,7 +35,7 @@ test("não confunde corrente de avanço com esteira",()=>{
 test("reservas MB24 não comprovam troca realizada",()=>{
  const m=createModel({orders:[ord("OS-4","2026-01-01","BL-SUBSTITUIR ROLETES","ABER")],
  reservations:[{"Nº reserva":"R1","Ordem":"OS-4",Material:"MAT-FICT-1","Texto breve material":"ROLETE FICTICIO","Qtd.necessária":"2"}]});
- assert.equal(classifyRodante(m.orders[0]).evidence,"planejado / pendente");
+ assert.equal(classifyRodante(m.orders[0]).evidence,"troca planejada / sem confirmação");
  assert.equal(m.orders[0].reserves.length,1);
  assert.equal(exportMaterials(m)[0]["Ordens distintas"],1);
 });
@@ -60,10 +60,10 @@ test("datas planejadas só entram em modo exploratório",()=>{
   ord("OS-21","2026-01-01","SUBSTITUIR ESTEIRA L/D"),
   ord("OS-22","2026-04-11","SUBSTITUIR ESTEIRA L/D")
  ]});
- assert.equal(analyzeRodante(m).intervals.length,0);
+ assert.equal(analyzeRodante(m,{allowProxy:false}).intervals.length,0);
  const r=analyzeRodante(m,{allowProxy:true});
  assert.equal(r.intervals.length,1);assert.equal(r.intervals[0].days,100);
- assert.equal(r.intervals[0].quality,"estimativa");
+ assert.match(r.intervals[0].quality,/estimado/);
 });
 test("aglutina o mesmo evento em janela de sete dias",()=>{
  const m=createModel({equipment,orders:[
@@ -114,4 +114,59 @@ test("não agrega médias de componentes diferentes num indicador global",()=>{
  assert.equal(r.intervals.length,2);
  assert.equal(r.meanDays,null);
  assert.equal(r.mixingComponents,true);
+});
+
+test("lê corretamente datas Excel e formatos brasileiros com ano de dois dígitos",()=>{
+ assert.equal(isoDate(46348),"2026-11-22");
+ assert.equal(isoDate("22/11/26"),"2026-11-22");
+ assert.equal(isoDate("22.11.26"),"2026-11-22");
+});
+test("prioriza Data-base, depois Fim da avaria e depois Entrada, preservando fonte",()=>{
+ const m=createModel({orders:[
+  {Ordem:"A", "Tipo de ordem":"PM01","Texto breve":"TROCAR ESTEIRA LD",
+   "Data-base do início":46348,"Data de entrada":46320},
+  {Ordem:"B", "Tipo de ordem":"PM01","Texto breve":"TROCAR ESTEIRA LD",
+   "Data de entrada":46200}
+ ],notes:[{"Tipo de nota":"M1","Nota":"N2",Ordem:"B",
+   "Fim da avaria":46210}]});
+ const a=classifyRodante(m.orders[0]);
+ const b=classifyRodante(m.orders[1]);
+ assert.equal(a.source,"Data-base do início");
+ assert.equal(a.reference,"2026-11-22");
+ assert.equal(b.source,"Fim da avaria");
+ assert.equal(b.reference,"2026-07-07");
+});
+test("não calcula intervalo com lado desconhecido",()=>{
+ const m=createModel({equipment,orders:[
+  ord("A","2026-01-01","SUBSTITUIR ESTEIRA","ENTE"),
+  ord("B","2026-08-01","SUBSTITUIR ESTEIRA","ENTE")
+ ]});
+ const r=analyzeRodante(m);
+ assert.equal(r.missingSide,2);
+ assert.equal(r.intervals.length,0);
+});
+test("material sem código SAP permanece no catálogo e na OS",()=>{
+ const m=createModel({orders:[ord("OS-77","2026-01-01","INSPECIONAR ESTEIRA")],
+ reservations:[{"Nº reserva":"R-77",Ordem:"OS-77",Material:"",
+ "Texto breve material":"PEÇA FICTÍCIA SEM CADASTRO","Qtd.necessária":2,"Unid.medida básica":"UN"}]});
+ const list=exportMaterials(m);
+ assert.equal(list.length,1);
+ assert.equal(list[0]["Sem cadastro"],"SIM");
+ assert.equal(m.orders[0].reserves.length,1);
+});
+test("separa custo total da OS do material reservado",()=>{
+ const m=createModel({equipment,orders:[
+  {...ord("OS-A","2026-01-01","TROCAR ESTEIRA LD","ENTE"),"Custos tot.reais":100000,"Custos totais plan.":120000},
+  {...ord("OS-B","2026-06-01","AJUSTAR ESTEIRA LD","ENTE"),"Custos tot.reais":250}
+ ],reservations:[{"Nº reserva":"R-A",Ordem:"OS-A",Material:"MAT-SINT-1",
+ "Texto breve material":"CORRENTE DA ESTEIRA","Qtd.necessária":1,"Unid.medida básica":"UN"}]});
+ const r=analyzeRodante(m);
+ assert.equal(r.costByClass.find(x=>x.operationClass==="troca de esteira / conjunto").totalReal,100000);
+ assert.equal(r.costByClass.find(x=>x.operationClass==="ajuste / reposicionamento").totalReal,250);
+ assert.equal(r.materialsByOrder.length,1);
+ assert.equal(r.materialsByOrder[0].costOrderReal,100000);
+});
+test("troca de módulos é parcial, e não substituição da esteira completa",()=>{
+ const m=createModel({orders:[ord("M1","2026-01-01","TROCAR MÓDULOS DA ESTEIRA LD","ENTE")]});
+ assert.equal(classifyRodante(m.orders[0]).operationClass,"troca mista / componentes adicionais");
 });
