@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {detectRole,createModel,analyzeRodante,asDate,isoDate,classifyRodante,enrichRows,exportMaterials} from "../src/engine.js";
+import {serializeSession,restoreSession,analyzeLifecycle,detectRole,createModel,analyzeRodante,asDate,isoDate,classifyRodante,enrichRows,exportMaterials} from "../src/engine.js";
 const equipment=[{Equipamento:"EQ-001","Denominação do objeto técnico":"ESCAVADEIRA FICTÍCIA 021-111","Nº inventário":"021-111"},
  {Equipamento:"EQ-002","Denominação do objeto técnico":"PERFURATRIZ FICTÍCIA 010-222","Nº inventário":"010-222"}];
 const ord=(id,d,desc,status="ENTE",date="")=>({
@@ -230,4 +230,85 @@ test("catalogo de esteira e lagarta com código e sem palavra 'completa' é evid
  reservations:[{"Nº reserva":"R-A",Ordem:"A","Texto breve material":"LAGARTA 12345 FABRICANTE","Qtd.necessária":2}]});
  assert.equal(classifyRodante(m.orders[0]).eventStrong,true);
  assert.equal(analyzeRodante(m,{asOf:"2026-11-17"}).initialLifeEstimates.length,2);
+});
+
+
+test("backup JSON restaura todas as bases, metadados e filtros sem perda",()=>{
+ const bases={equipment:[{"Equipamento":"EQ-TESTE","Denominação do objeto técnico":"TRATOR DE ESTEIRAS FICTICIO 050-999"}],
+   orders:[{"Ordem":"OS-111","Tipo de ordem":"PM01","Texto breve":"TROCAR ESTEIRA LD"}],
+   reservations:[{"Nº reserva":"RES-111","Ordem":"OS-111","Material":"MAT-111"}],
+   notes:[{"Nota":"N-111","Tipo de nota":"M1"}],locations:[]};
+ const session=serializeSession(bases,[{file:"base-ficticia.xlsx",role:"orders"}],
+   {lifeAllowWeak:true,lifeAsOf:"2026-11-17"});
+ const restored=restoreSession(JSON.parse(JSON.stringify(session)));
+ assert.equal(restored.bases.orders[0].Ordem,"OS-111");
+ assert.equal(restored.bases.reservations[0].Material,"MAT-111");
+ assert.equal(restored.bases.equipment[0].Equipamento,"EQ-TESTE");
+ assert.equal(restored.settings.lifeAsOf,"2026-11-17");
+ assert.equal(restored.settings.lifeAllowWeak,true);
+});
+test("sessão JSON inválida é rejeitada sem alterar contexto",()=>{
+ assert.throws(()=>restoreSession({format:"dado inventado",version:1,bases:{}}));
+});
+test("ciclo de vida lista a ordem exata por equipamento e lado",()=>{
+ const m=createModel({equipment:[{Equipamento:"EQ-D9",
+   "Denominação do objeto técnico":"TRATOR DE ESTEIRAS FICTICIO 050-999",
+   "Data de aquisição":"01/01/2025","Data de entrada em serviço":"01/03/2025"}],
+  orders:[
+   {Ordem:"OS-PRIMEIRA","Tipo de ordem":"PM01",Equipamento:"EQ-D9",
+    "Texto breve":"SUBSTITUIR ESTEIRA LD","Data-base do início":"01/03/2026",
+    "Custos tot.reais":90000,"Status do sistema":"ENTE"},
+   {Ordem:"OS-SEGUNDA","Tipo de ordem":"PM01",Equipamento:"EQ-D9",
+    "Texto breve":"SUBSTITUIR ESTEIRA LD","Data-base do início":"01/08/2026",
+    "Custos tot.reais":120000,"Status do sistema":"ENCE"}],
+  reservations:[
+   {"Nº reserva":"RS1",Ordem:"OS-PRIMEIRA","Material":"M1","Texto breve material":"ESTEIRA COMPLETA"},
+   {"Nº reserva":"RS2",Ordem:"OS-SEGUNDA","Material":"M2","Texto breve material":"GRUPO DE ESTEIRA"}]
+ });
+ const r=analyzeLifecycle(m,{asOf:"2026-11-17"});
+ assert.equal(r.equipmentSummary.length,1);
+ assert.equal(r.cycles.length,2);
+ assert.equal(r.cycles[0].order,"OS-PRIMEIRA");
+ assert.equal(r.cycles[0].days,365);
+ assert.equal(r.cycles[1].order,"OS-SEGUNDA");
+ assert.equal(r.cycles[1].previousOrder,"OS-PRIMEIRA");
+ assert.equal(r.cycles[1].days,153);
+ assert.equal(r.materialDetails.length,2);
+ assert.equal(r.metrics.approvedOrders,2);
+});
+test("troca dos dois lados na mesma OS conta uma ordem, duas esteiras",()=>{
+ const m=createModel({equipment:[{Equipamento:"EQ-A",
+   "Denominação do objeto técnico":"TRATOR DE ESTEIRAS FICTICIO 050-999",
+   "Data de aquisição":"01/01/2025"}],
+   orders:[{Ordem:"OS-BOTH","Tipo de ordem":"PM01",Equipamento:"EQ-A",
+    "Texto breve":"SUBSTITUIR ESTEIRAS LD LE","Data-base do início":"01/01/2026",
+    "Custos tot.reais":100000,"Status do sistema":"ENCE"}]});
+ const r=analyzeLifecycle(m,{asOf:"2026-11-17"});
+ assert.equal(r.cycles.length,2);
+ assert.equal(r.equipmentSummary[0].acceptedOrders,1);
+ assert.equal(r.equipmentSummary[0].observedSides,2);
+});
+test("materiais de ajuste não são tratados como troca e ficam auditáveis",()=>{
+ const m=createModel({equipment:[{Equipamento:"EQ-A",
+   "Denominação do objeto técnico":"PERFURATRIZ FICTICIA DR410 010-888"}],
+   orders:[{Ordem:"OS-AJUSTE","Tipo de ordem":"PM01",Equipamento:"EQ-A",
+    "Texto breve":"AJUSTAR TENSIONAMENTO ESTEIRA LD","Data-base do início":"01/01/2026"}],
+   reservations:[{"Nº reserva":"R-A",Ordem:"OS-AJUSTE","Material":"M-T",
+    "Texto breve material":"VALVULA TENSORA"}]});
+ const r=analyzeLifecycle(m,{asOf:"2026-11-17"});
+ assert.equal(r.equipmentSummary.length,1);
+ assert.equal(r.equipmentSummary[0].acceptedOrders,0);
+ assert.equal(r.audit[0].order,"OS-AJUSTE");
+ assert.equal(r.materialDetails[0].order,"OS-AJUSTE");
+});
+test("ordem sem lado conhecido permanece na auditoria, sem produzir vida calculada",()=>{
+ const m=createModel({equipment:[{Equipamento:"EQ-A",
+   "Denominação do objeto técnico":"ESCAVADEIRA FICTICIA CAT 395 021-888"}],
+   orders:[{Ordem:"OS-SEM-LADO","Tipo de ordem":"PM01",Equipamento:"EQ-A",
+    "Texto breve":"SUBSTITUIR ESTEIRA COMPLETA","Data-base do início":"01/01/2026",
+    "Custos tot.reais":100000,"Status do sistema":"ENCE"}]});
+ const r=analyzeLifecycle(m,{asOf:"2026-11-17"});
+ assert.equal(r.cycles.length,0);
+ assert.equal(r.audit[0].order,"OS-SEM-LADO");
+ assert.equal(r.metrics.missingSide,1);
 });
