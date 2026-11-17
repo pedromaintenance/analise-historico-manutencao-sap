@@ -252,25 +252,30 @@ export function buildDictionaries(norm,byEquip,byFL) {
   return [...index.values()].map(x=>({...x,sources:[...x.sources].join(", ")}));
 }
 const patterns={
-  "esteira completa":/(?:\bESTEIRAS?\b|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+(?:DE\s+)?ESTEIRA)/,
   "roletes":/\bROLET(?:E|ES)\b|\bROLLER[S]?\b/,
   "roda guia":/RODA\s+GUIA|\bIDLER\b/,
   "roda motriz / segmento":/RODA\s+MOTRIZ|\bSPROCKET\b|SEGMENTO[S]?\s+(?:DA\s+)?RODA/,
   "sapatas / fixações":/\bSAPATAS?\b|PARAFUSO[S]?\s+(?:DE\s+)?SAPATA/,
   "tensionamento":/\bTENSOR\b|\bESTICADOR\b|AJUSTADOR\s+(?:DE\s+)?ESTEIRA/,
+  "pinos e buchas":/\bPINOS?\b|\bBUCHAS?\b|\bELOS?\b/,
+  "proteções":/\bPROTE[TÇC][AÃAO]+\b|\bPROTETOR(?:ES)?\b/,
+  "esteira completa":/(?:\bESTEIRAS?\b|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+(?:DE\s+)?ESTEIRA)/,
   "material rodante geral":/MATERIAL\s+RODANTE|\bRODANTE\b|\bUNDERCARRIAGE\b/
 };
 const activityPattern=/\b(TROC\w*|SUBST\w*|REPLAC\w*|RENOV\w*|MONTAGEM|INSTAL\w*)\b/;
 const preventivePattern=/\b(INSPEC\w*|VERIFIC\w*|LUBRIF\w*|AVALI\w*|MEDI\w*|TENSION\w*|AJUST\w*|DIAGNOSTIC\w*)\b/;
 export function classifyRodante(order) {
-  const content=key([order.description,order.noteDescription,order.materialText,
-    ...(order.reserves||[]).map(x=>x.description)].filter(Boolean).join(" "));
   const main=key([order.description,order.noteDescription].filter(Boolean).join(" "));
-  const context=key([order.flLabel].join(" "));
+  const reserveText=key((order.reserves||[]).map(x=>x.description).join(" "));
+  const materialText=key(order.materialText);
+  const context=key(order.flLabel);
+  // Evidência textual da atividade é diferente de uma reserva de material.
   let component="";
-  for (const [name,re] of Object.entries(patterns)) if(re.test(content)) {component=name;break;}
-  // Um nome de local "Esteira" não demonstra que ocorreu uma substituição.
-  // "Corrente de avanço" é um mecanismo da perfuratriz, não a corrente de esteira.
+  for (const [name,re] of Object.entries(patterns)) if(re.test(main)) {component=name;break;}
+  const narrativeComponent=component;
+  if(!component)for (const [name,re] of Object.entries(patterns)) if(re.test(reserveText+" "+materialText)) {component=name;break;}
+  const materialOnly=Boolean(component&&!narrativeComponent);
+  // Evita associar corrente de avanço da perfuratriz à corrente de esteira.
   if (/CORRENTE\s+DE\s+AVANCO/.test(main) && !/ESTEIR|RODANTE|ROLETE|RODA\s+GUIA|RODA\s+MOTRIZ/.test(main))
     component="";
   const replacement=activityPattern.test(main);
@@ -281,7 +286,8 @@ export function classifyRodante(order) {
   const actual=isoDate(order.actualEnd)||isoDate(order.actualStart);
   const proxy=isoDate(order.plannedDate)||isoDate(order.createdDate);
   let evidence="não classificado";
-  if(component && replacement) {
+  if(component && materialOnly)evidence="indício apenas por material reservado";
+  else if(component && replacement) {
     if(cancelled)evidence="cancelado / não executado";
     else if(closed && actual)evidence="confirmado por status e data real";
     else if(closed)evidence="provável (sem data real)";
@@ -290,11 +296,11 @@ export function classifyRodante(order) {
   else if(component)evidence="menção sem troca identificada";
   const right=/\bL\s*D\b|LADO\s+DIREITO|DIREITA\b/.test(main);
   const left=/\bL\s*E\b|LADO\s+ESQUERDO|ESQUERDA\b/.test(main);
-  const both=left&&right || /AMBOS\s+OS\s+LADOS|PAR\s+DE\s+ESTEIRAS/.test(main);
+  const both=(left&&right)||/AMBOS\s+OS\s+LADOS|PAR\s+DE\s+ESTEIRAS/.test(main);
   const side=both?"ambos":right?"direito":left?"esquerdo":"não informado";
-  return {component,side,replacement,inspection,evidence,dateReal:actual,dateProxy:proxy,
-    isCandidate:Boolean(component&&replacement&&!cancelled),
-    contextOnly:!component && Boolean(context.match(/ESTEIR|RODANTE/))};
+  return {component,side,replacement,inspection,evidence,dateReal:actual,dateProxy:proxy,materialOnly,
+    isCandidate:Boolean(component&&replacement&&!cancelled&&!materialOnly),
+    contextOnly:!component&&Boolean(context.match(/ESTEIR|RODANTE/))};
 }
 const diffDays=(a,b)=>(asDate(b).getTime()-asDate(a).getTime())/86400000;
 const mean=v=>v.length?v.reduce((a,b)=>a+b,0)/v.length:null;
@@ -362,7 +368,7 @@ export function analyzeRodante(model,{allowProxy=false,component="esteira comple
   return {candidates,eligible,intervals,audit,summary,meanDays:mean(intervals.map(x=>x.days)),
     medianDays:median(intervals.map(x=>x.days)),clustered:clusters,
     dataMode:allowProxy?"inclui datas substitutas":"somente datas reais",
-    excluded:eligible.length-samples.filter(x=>x.side!=="esquerdo"||true).length};
+    excluded:eligible.filter(x=>!x.analysis.dateReal && !(allowProxy&&x.analysis.dateProxy)).length};
 }
 export function enrichRows(model,role) {
   const items=model.norm[role]||[];
