@@ -84,3 +84,34 @@ test("a ordem sem texto técnico de esteira não vira troca por possuir reserva 
  reservations:[{"Nº reserva":"R5",Ordem:"OS-51",Material:"MAT-FICT-2","Texto breve material":"ROLETE"}]});
  assert.equal(analyzeRodante(m,{component:"roletes"}).intervals.length,0);
 });
+
+test("montagem da esteira não conta como substituição confirmada",()=>{
+ const m=createModel({equipment,orders:[
+  ord("OS-61","2026-01-01","MONTAGEM DA ESTEIRA LD","ENTE","2026-01-05"),
+  ord("OS-62","2026-04-01","INSTALAR ESTEIRA LD","ENTE","2026-04-05")
+ ]});
+ const candidates=analyzeRodante(m);
+ assert.equal(candidates.eligible.length,0);
+ assert.equal(candidates.intervals.length,0);
+});
+test("status customizados funcionam e cancelamento tem precedência",()=>{
+ const m=createModel({equipment,orders:[
+  ord("OS-71","2026-01-01","SUBSTITUIR ESTEIRA LD","FINAL","2026-01-05"),
+  ord("OS-72","2026-04-01","SUBSTITUIR ESTEIRA LD","FINAL","2026-04-05"),
+  ord("OS-73","2026-07-01","SUBSTITUIR ESTEIRA LD","FINAL VOID","2026-07-05")
+ ]});
+ const r=analyzeRodante(m,{completionStatuses:["FINAL"],cancellationStatuses:["VOID"]});
+ assert.equal(r.intervals.length,1);assert.equal(r.eligible.length,2);
+});
+test("não agrega médias de componentes diferentes num indicador global",()=>{
+ const m=createModel({equipment,orders:[
+  ord("OS-81","2026-01-01","SUBSTITUIR ESTEIRA LD","ENTE","2026-01-05"),
+  ord("OS-82","2026-04-01","SUBSTITUIR ESTEIRA LD","ENTE","2026-04-05"),
+  ord("OS-83","2026-01-01","SUBSTITUIR ROLETE LD","ENTE","2026-01-07"),
+  ord("OS-84","2026-05-01","SUBSTITUIR ROLETE LD","ENTE","2026-05-07")
+ ]});
+ const r=analyzeRodante(m,{component:"todos"});
+ assert.equal(r.intervals.length,2);
+ assert.equal(r.meanDays,null);
+ assert.equal(r.mixingComponents,true);
+});
