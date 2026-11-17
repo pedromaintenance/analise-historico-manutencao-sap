@@ -369,72 +369,128 @@ export function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancel
 const diffDays=(a,b)=>(asDate(b).getTime()-asDate(a).getTime())/86400000;
 const mean=v=>v.length?v.reduce((a,b)=>a+b,0)/v.length:null;
 const median=v=>{if(!v.length)return null;const t=[...v].sort((a,b)=>a-b);return t.length%2?t[(t.length-1)/2]:(t[t.length/2-1]+t[t.length/2])/2;};
-export function analyzeRodante(model,{allowProxy=false,component="esteira completa",assetPrefix="",completionStatuses=["ENTE","ENCE"],cancellationStatuses=["NEXE","CANC"]}={}) {
+export function analyzeRodante(model,{
+  allowProxy=true,component="esteira completa",assetPrefix="",
+  completionStatuses=["ENTE","ENCE"],cancellationStatuses=["NEXE","CANC"]
+}={}) {
   const candidates=[];
   for(const order of model.orders){
     const analysis=classifyRodante(order,{completionStatuses,cancellationStatuses});
-    if(!analysis.component || (component!=="todos"&&analysis.component!==component))continue;
-    if(assetPrefix && !key(order.identity.label+" "+order.identity.tag).includes(key(assetPrefix)))continue;
+    if(!analysis.component||(component!=="todos"&&analysis.component!==component))continue;
+    if(assetPrefix&&!key(order.identity.label+" "+order.identity.tag).includes(key(assetPrefix)))continue;
     candidates.push({...order,analysis});
   }
-  const eligible = candidates.filter(c=>c.analysis.isCandidate);
+  const eligible=candidates.filter(x=>x.analysis.isCandidate);
+  const financialOrders=candidates.map(x=>({
+    order:x.id,asset:x.identity.label,component:x.analysis.component,
+    operationClass:x.analysis.operationClass,side:x.analysis.side,
+    description:x.description,status:x.sys,activity:x.activity,
+    evidence:x.analysis.evidence,evidenceLevel:x.analysis.evidenceLevel,
+    costReal:x.analysis.costReal,costPlanned:x.analysis.costPlanned,
+    reserveLines:x.reserves.length,reservedMaterials:x.reserves.map(r=>r.material).filter(Boolean).join("; "),
+    dateBase:x.analysis.dateBase,faultEnd:x.analysis.faultEnd,entry:x.analysis.entry,
+    reference:x.analysis.reference,referenceSource:x.analysis.source,
+    technician:x.notifier
+  }));
+  const costGroups=new Map();
+  for(const r of financialOrders){
+    if(!costGroups.has(r.operationClass))costGroups.set(r.operationClass,[]);
+    costGroups.get(r.operationClass).push(r);
+  }
+  const costByClass=[...costGroups.entries()].map(([name,rows])=>{
+    const positive=rows.map(x=>x.costReal).filter(x=>x>0);
+    return {operationClass:name,orders:rows.length,
+      withRealCost:positive.length,zeroRealCost:rows.length-positive.length,
+      totalReal:rows.reduce((a,x)=>a+x.costReal,0),
+      totalPlanned:rows.reduce((a,x)=>a+x.costPlanned,0),
+      meanPositive:mean(positive),medianPositive:median(positive),
+      withReservation:rows.filter(x=>x.reserveLines>0).length,
+      reservationLines:rows.reduce((a,x)=>a+x.reserveLines,0)};
+  }).sort((a,b)=>b.totalReal-a.totalReal);
+  const materialsByOrder=[];
+  for(const x of candidates)for(const r of x.reserves){
+    materialsByOrder.push({order:x.id,asset:x.identity.label,operationClass:x.analysis.operationClass,
+      code:r.material||"SEM CÓDIGO SAP",description:r.description,unit:r.unit,
+      required:parseNumber(r.qty),registered:parseNumber(r.qtyPosted),difference:parseNumber(r.qtyDiff),
+      deleted:r.deletedFlag,finalFlag:r.finalFlag,reservation:r.id,
+      costOrderReal:x.analysis.costReal,
+      note:"Reserva não comprova aplicação; custo da ordem não é preço do material"});
+  }
   const samples=[];
-  for (const c of eligible) {
+  for(const c of eligible){
     const a=c.analysis;
-    if(a.dateReal&&a.evidence==="confirmado por status e data real") {
-      for(const side of a.side==="ambos"?["direito","esquerdo"]:[a.side])
-        samples.push({asset:c.identity.id,label:c.identity.label,tag:c.identity.tag,component:a.component,side,
-          date:a.dateReal,order:c.id,confidence:"data real",source:c});
-    } else if(allowProxy&&a.evidence==="provável (sem data real)"&&a.dateProxy) {
-      for(const side of a.side==="ambos"?["direito","esquerdo"]:[a.side])
-        samples.push({asset:c.identity.id,label:c.identity.label,tag:c.identity.tag,component:a.component,side,
-          date:a.dateProxy,order:c.id,confidence:"data substituta",source:c});
-    }
+    const supported=a.closed||a.costReal>0;
+    const dated=Boolean(a.reference);
+    // Componente ou lado desconhecido não forma sequência de trocas comparável.
+    if(!supported||!dated||a.side==="não informado")continue;
+    if(!allowProxy&&!a.actual)continue;
+    if(component==="esteira completa"&&a.operationClass!=="troca de esteira / conjunto")continue;
+    if(a.operationClass==="troca mista / componentes adicionais")continue;
+    const selectedDate=allowProxy?a.reference:a.actual;
+    for(const side of a.side==="ambos"?["direito","esquerdo"]:[a.side])
+      samples.push({asset:c.identity.id,label:c.identity.label,tag:c.identity.tag,
+        component:a.component,side,date:selectedDate,dateSource:allowProxy?a.source:"data real",
+        order:c.id,confidence:a.closed?"status indicativo":"custo registrado",
+        costReal:a.costReal,costPlanned:a.costPlanned,
+        source:c});
   }
   const groups=new Map();
-  for(const s of samples){
-    if(s.asset==="UNRESOLVED")continue;
-    const k=[s.asset,s.component,s.side].join("|");
-    if(!groups.has(k))groups.set(k,[]);
-    groups.get(k).push(s);
+  for(const item of samples){
+    if(item.asset==="UNRESOLVED")continue;
+    const group=[item.asset,item.component,item.side].join("|");
+    if(!groups.has(group))groups.set(group,[]);
+    groups.get(group).push(item);
   }
-  const intervals=[]; const audit=[];let clusters=0;
+  const intervals=[],audit=[];let clustered=0;
   for(const [group,events] of groups){
     events.sort((a,b)=>a.date.localeCompare(b.date)||a.order.localeCompare(b.order));
     const distinct=[];
     for(const e of events){
       const last=distinct.at(-1);
       if(last&&diffDays(last.date,e.date)<=7){
-        last.orders.push(e.order);last.proxies ||= e.confidence==="data substituta";
-        clusters++;continue;
+        last.orders.push(e.order);last.costReal+=e.costReal;last.costPlanned+=e.costPlanned;
+        last.dateSources.add(e.dateSource);clustered++;continue;
       }
-      distinct.push({...e,orders:[e.order],proxies:e.confidence==="data substituta"});
+      distinct.push({...e,orders:[e.order],dateSources:new Set([e.dateSource])});
     }
-    audit.push(...distinct.map(x=>({asset:x.label,tag:x.tag,component:x.component,side:x.side,date:x.date,orders:x.orders.join("; "),origin:x.proxies?"data substituta":"data real"})));
+    audit.push(...distinct.map(x=>({asset:x.label,tag:x.tag,component:x.component,
+      side:x.side,date:x.date,dateSource:[...x.dateSources].join(" + "),
+      orders:x.orders.join("; "),realCost:x.costReal,plannedCost:x.costPlanned,
+      origin:allowProxy?"referência de planejamento/avaria/entrada":"data de execução",
+      warning:"Agrupamento de até 7 dias é provisório e exige validação técnica"})));
     for(let i=1;i<distinct.length;i++){
       const earlier=distinct[i-1],later=distinct[i];
       const days=diffDays(earlier.date,later.date);
-      if(days>0)intervals.push({asset:later.label,tag:later.tag,component:later.component,side:later.side,
-        first:earlier.date,last:later.date,days,orders:earlier.orders.join("; ")+" → "+later.orders.join("; "),
-        quality:earlier.proxies||later.proxies?"estimativa":"verificado"});
+      if(days>0)intervals.push({asset:later.label,tag:later.tag,component:later.component,
+        side:later.side,first:earlier.date,last:later.date,days,
+        orders:earlier.orders.join("; ")+" → "+later.orders.join("; "),
+        quality:allowProxy?"intervalo entre datas de referência (estimado)":"intervalo real",
+        dateSources:[...new Set([...earlier.dateSources,...later.dateSources])].join("; ")});
     }
   }
   const byAsset=new Map();
   for(const x of intervals){
-    const k=x.asset+"|"+x.component+"|"+x.side;
+    const k=[x.asset,x.component,x.side].join("|");
     if(!byAsset.has(k))byAsset.set(k,[]);
     byAsset.get(k).push(x.days);
   }
   const summary=[...byAsset.entries()].map(([k,days])=>{
     const [asset,component,side]=k.split("|");
-    return {asset,component,side,intervals:days.length,meanDays:mean(days),medianDays:median(days),minDays:Math.min(...days),maxDays:Math.max(...days)};
+    return {asset,component,side,intervals:days.length,meanDays:mean(days),
+      medianDays:median(days),minDays:Math.min(...days),maxDays:Math.max(...days)};
   }).sort((a,b)=>b.intervals-a.intervals);
   const allComponents=new Set(intervals.map(x=>x.component));
   const mixingComponents=allComponents.size>1;
-  return {candidates,eligible,intervals,audit,summary,meanDays:mixingComponents?null:mean(intervals.map(x=>x.days)),
-    medianDays:mixingComponents?null:median(intervals.map(x=>x.days)),mixingComponents,clustered:clusters,
-    dataMode:allowProxy?"inclui datas substitutas":"somente datas reais",
-    excluded:eligible.filter(x=>!x.analysis.dateReal && !(allowProxy&&x.analysis.dateProxy)).length};
+  return {candidates,eligible,financialOrders,costByClass,materialsByOrder,
+    intervals,audit,summary,meanDays:mixingComponents?null:mean(intervals.map(x=>x.days)),
+    medianDays:mixingComponents?null:median(intervals.map(x=>x.days)),
+    mixingComponents,clustered,
+    missingSide:eligible.filter(x=>x.analysis.side==="não informado").length,
+    withoutCost:candidates.filter(x=>x.analysis.costReal===0).length,
+    withoutReservation:candidates.filter(x=>!x.reserves.length).length,
+    dataMode:allowProxy?"datas-base/avaria/entrada (proxy)":"somente data real",
+    excluded:eligible.filter(x=>!x.analysis.reference||x.analysis.side==="não informado"||
+      !(x.analysis.closed||x.analysis.costReal>0)).length};
 }
 export function enrichRows(model,role) {
   const items=model.norm[role]||[];
