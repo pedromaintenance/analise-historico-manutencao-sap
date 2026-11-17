@@ -47,3 +47,13 @@ Perfis de status por implantação SAP; cadastros de locação histórica, aprop
 
 ## Regra de conclusão configurável
 Os status indicativos de conclusão e de cancelamento são editáveis na interface. Os valores iniciais são sugestões de trabalho e não uma definição universal do SAP. A execução só é considerada datada quando também houver data real coerente; os estados devem ser validados contra a transação/configuração e o procedimento local.
+
+## Primeira esteira e início da vida observada
+
+O cadastro de Equipamentos pode apresentar `Data de aquisição`; uma coluna adicional `Data de entrada em serviço` (ou `Data de comissionamento`) é aceita pelo importador. A entrada em serviço prevalece, e **não** se utiliza `Válido desde` como data de comissionamento: este campo pode representar validade administrativa do cadastro.
+
+Estimativa inicial em dias = Data-base de início da primeira ordem candidata de troca de esteira completa - Data de entrada em serviço. Se somente aquisição existir, apresentar **tempo entre compra e primeira troca observada**, uma estimativa indireta que só pode se aproximar da vida da esteira original se (1) o equipamento era novo, (2) a esteira original estava montada no comissionamento, (3) não houve trocas anteriores fora do horizonte SAP e (4) a ordem selecionada reflete a substituição física. De outro modo, há truncamento/censura à esquerda e a estimativa não comprova vida.
+
+Para evitar estimativas enganadoras, a seleção prudente exige descrição de troca do conjunto, status coerente, custo real positivo e nenhuma reserva restrita a componentes secundários; uma reserva de conjunto e custo positivo aumenta a confiança. Permanece possível ativar o filtro exploratório com evidências fracas para auditoria, mas esses valores não devem ser tratados como resultados consolidados. Serviços de FPS, fixações e tensionamento NÃO devem contar como trocas completas.
+
+Trocas direita e esquerda no mesmo número de OS representam até duas vidas físicas de esteiras, mas **um único evento de manutenção e um único custo de ordem**. Não duplicar custo ou frequência de OS na comparação de frota. Para cálculo de vida em horas, utilizar histórico de horímetros; dias podem refletir utilização distinta.
