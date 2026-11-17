@@ -231,7 +231,7 @@ export function createModel(bases) {
     const n=linkedNotes[0]||null;
     const eq=o.equipment||(n?.equipment||"");
     const fl=o.fl||(n?.fl||"");
-    const identity=resolveAsset(eq,fl,o.object||(n?.object||""),byEquip,byFL,byTag,o.sortKey||(n?.sortKey||""));
+    const identity=resolveAsset(eq,fl,o.description||(n?.description||o.object||(n?.object||"")),byEquip,byFL,byTag,o.sortKey||(n?.sortKey||""));
     orders.push({...o, equipment:eq, fl, identity, notes:linkedNotes, reserves:linkedMaterials,
       description:o.description||(n?.description||""), notifier:n?.notifier||"",
       materialCount:linkedMaterials.length,
@@ -261,6 +261,15 @@ export function resolveAsset(equipment,fl,desc,byEquip,byFL,byTag,directSortKey=
       confidence:"média"
     };
     // Tags inexistentes ou ambíguas não são atribuídas forçadamente.
+  }
+  const tagFromDescription=machineTag(desc);
+  if(tagFromDescription){
+    const matches=byTag.get(tagFromDescription)||[];
+    if(matches.length===1)return {
+      id:"EQ:"+matches[0].id,level:"equipment",label:matches[0].object,
+      tag:tagFromDescription,method:"TAG citada no texto da OS (validar)",
+      confidence:"baixa"
+    };
   }
   // Sem codificar a hierarquia de nenhuma empresa. O usuário fornece o
   // vínculo pelo campo de ordenação dos locais técnicos e pelo mestre de equipamentos.
@@ -564,7 +573,7 @@ export function enrichRows(model,role) {
   return items.map(r=>{
     const eq=model.byEquip.get(r.equipment);
     const fl=model.byFL.get(r.fl);
-    const identity=resolveAsset(r.equipment,r.fl,r.object,model.byEquip,model.byFL,model.byTag,r.sortKey);
+    const identity=resolveAsset(r.equipment,r.fl,r.description||r.object,model.byEquip,model.byFL,model.byTag,r.sortKey);
     return {...r.raw,
       "Enriq. Equipamento":r.equipment,
       "Enriq. Denominação equipamento":eq?.object||r.object||"",
