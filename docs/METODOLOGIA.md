@@ -57,3 +57,15 @@ Estimativa inicial em dias = Data-base de início da primeira ordem candidata de
 Para evitar estimativas enganadoras, a seleção prudente exige descrição de troca do conjunto, status coerente, custo real positivo e nenhuma reserva restrita a componentes secundários; uma reserva de conjunto e custo positivo aumenta a confiança. Permanece possível ativar o filtro exploratório com evidências fracas para auditoria, mas esses valores não devem ser tratados como resultados consolidados. Serviços de FPS, fixações e tensionamento NÃO devem contar como trocas completas.
 
 Trocas direita e esquerda no mesmo número de OS representam até duas vidas físicas de esteiras, mas **um único evento de manutenção e um único custo de ordem**. Não duplicar custo ou frequência de OS na comparação de frota. Para cálculo de vida em horas, utilizar histórico de horímetros; dias podem refletir utilização distinta.
+
+## Reconstrução de ciclo por equipamento e número exato da OS
+
+A tela 04 reúne simultaneamente equipamentos, locais, ordens, notas e reservas. A tabela de ciclos apresenta número SAP literal da ordem de cada troca, número da ordem anterior, lado, data-base e fonte, intervalo em dias, materiais previstos e qualidade da evidência. Há também uma tabela integral de auditoria com ordens não elegíveis, inclusive serviços parciais de FPS, parafusos, tensão, roletes e regulagem.
+
+Eventos com evidência insuficiente são excluídos por padrão dos intervalos e podem ser incluídos explicitamente no modo exploratório. Ordens sem lado identificado ficam em auditoria, mas não participam de intervalos esquerda/direita. Uma OS contendo os dois lados representa dois ciclos físicos, porém apenas uma OS e custo de ordem não deve ser somado duas vezes.
+
+A primeira vida observada parte da data de entrada em serviço, quando fornecida; caso contrário, a data de aquisição serve apenas como indicador aproximado de tempo desde a compra. A segunda e demais trocas usam a referência de OS anterior do mesmo lado. Eventos em até sete dias podem ser agrupados provisoriamente, preservando todos os números de OS. Ciclos ainda abertos são censurados; não representam troca ocorrida.
+
+## Persistência portátil e controle de acesso
+
+O pacote Excel multiabas preserva os campos originais de cada fonte e uma coluna de identificação da origem. A sessão JSON possui versão explícita e conserva as bases brutas, os nomes de origem e filtros. O JSON não é anonimizado; deve ser mantido em ambiente corporativo autorizado, sem publicação pública e sem upload a sites não autorizados.
