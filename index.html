@@ -128,6 +128,9 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
    </select>
    <input id="assetFilter" placeholder="Filtrar máquina, TAG ou denominação">
    <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="allowProxy"> Incluir estimativas com data-base</label>
+  </div><div class="toolbar">
+   <label for="closingStatuses">Status indicativos de conclusão:</label><input id="closingStatuses" value="ENTE ENCE" aria-label="Status conclusivos separados por espaço">
+   <label for="cancelStatuses">Status de cancelamento:</label><input id="cancelStatuses" value="NEXE CANC" aria-label="Status de cancelamento separados por espaço">
   </div>
   <div id="rodanteWarning" class="notice"></div>
   <div class="summary" id="rodanteMetrics"></div>
@@ -289,7 +292,9 @@ function renderRodante(){
  const m=state.model;
  const allowProxy=$("allowProxy").checked;
  const component=$("componentFilter").value,assetPrefix=$("assetFilter").value;
- const r=analyzeRodante(m,{allowProxy,component,assetPrefix});
+ const completionStatuses=$("closingStatuses").value.split(/[\s,;]+/).filter(Boolean);
+ const cancellationStatuses=$("cancelStatuses").value.split(/[\s,;]+/).filter(Boolean);
+ const r=analyzeRodante(m,{allowProxy,component,assetPrefix,completionStatuses,cancellationStatuses});
  state.report=r;
  metrics("rodanteMetrics",[
   [num(r.candidates.length),"Ordens com componente"],[num(r.eligible.length),"Ordens candidatas a troca"],
@@ -329,6 +334,8 @@ for(const id of ["searchDictionary","searchMaterials","searchOrders","assetFilte
 $("filterDictionary").onchange=renderCatalog;
 $("componentFilter").onchange=renderRodante;
 $("allowProxy").onchange=renderRodante;
+$("closingStatuses").oninput=renderRodante;
+$("cancelStatuses").oninput=renderRodante;
 $("exportDictionary").onclick=()=>downloadSheets("dicionario_tecnico_sap",[{name:"Dicionarios",rows:state.model.dictionaries}]);
 $("exportEnriched").onclick=()=>{
  const role=$("enrichRole").value;downloadSheets("sap_"+role+"_enriquecido",[{name:"DadosEnriquecidos",rows:enrichRows(state.model,role)}]);
