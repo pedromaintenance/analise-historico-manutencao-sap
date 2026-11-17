@@ -631,7 +631,7 @@ export function analyzeLifecycle(model,{
     machines.set("EQ:"+e.id,{id:"EQ:"+e.id,name:e.object||e.id,
       tag:machineTag(e.object)||machineTag(e.inventory),family:categoryOf(e.object+" "+e.model),
       acquisition:isoDate(e.acquisitionDate),commissioned:isoDate(e.serviceStart),
-      equipment:e.id});
+      model:e.model||"",equipment:e.id});
   }
   const audit=[],valid=[],materialDetails=[];
   for(const o of model.orders){
@@ -646,7 +646,7 @@ export function analyzeLifecycle(model,{
     if(!machines.has(id))machines.set(id,{id,name:label,
       tag:o.identity.tag||machineTag(label),
       family:categoryOf(label+" "+(e?.model||"")),acquisition:isoDate(e?.acquisitionDate),
-      commissioned:isoDate(e?.serviceStart),equipment:e?.id||""});
+      commissioned:isoDate(e?.serviceStart),model:e?.model||"",equipment:e?.id||""});
     const reserveList=o.reserves.map(x=>({
       reservation:x.id,material:x.material||"",description:x.description||"",
       qty:x.qty,unit:x.unit,deleted:x.deletedFlag,finalFlag:x.finalFlag
@@ -734,7 +734,7 @@ export function analyzeLifecycle(model,{
           :"Intervalo estimado entre ordens (não horas operadas)";
         const aggregateCost=event.mergedRecords.reduce((t,r)=>t+r.costReal,0);
         cycles.push({
-          equipment:machine.equipment,asset:machine.name,tag:machine.tag,family:machine.family,
+          equipment:machine.equipment,asset:machine.name,tag:machine.tag,family:machine.family,model:machine.model||"",
           side:event.side,cycleType:kind,sequence:i+1,
           previousOrder:anchorOrder,order:event.order,
           groupedOrders:event.mergedOrders.join("; "),
