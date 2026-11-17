@@ -128,6 +128,7 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
    </select>
    <input id="assetFilter" placeholder="Filtrar máquina, TAG ou denominação">
    <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="allowProxy" checked> Usar datas de referência (Data-base → Fim da avaria → Entrada)</label>
+   <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="allowWeak"> Incluir eventos com evidência insuficiente</label>
   </div><div class="toolbar">
    <label for="closingStatuses">Status indicativos de conclusão:</label><input id="closingStatuses" value="ENTE ENCE" aria-label="Status conclusivos separados por espaço">
    <label for="cancelStatuses">Status de cancelamento:</label><input id="cancelStatuses" value="NEXE CANC" aria-label="Status de cancelamento separados por espaço">
@@ -142,6 +143,9 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
   <h3 style="margin-top:18px">Materiais associados às ordens — MB24</h3>
   <div class="tablewrap"><table id="materialsOrderTable"></table></div>
   <p class="muted" id="materialOrderCount"></p>
+  <h3 style="margin-top:18px">Primeira troca observada — aquisição / entrada em serviço</h3>
+  <p class="help">A data de entrada em serviço, quando fornecida no cadastro, prevalece sobre a Data de aquisição. A aquisição oferece somente o tempo transcorrido desde a compra, não prova a vida de uma esteira original. É possível acrescentar a coluna “Data de entrada em serviço” na planilha de equipamentos antes do upload.</p>
+  <div class="tablewrap"><table id="firstLifeTable"></table></div>
   <h3 style="margin-top:18px">Comparação entre objetos técnicos</h3>
   <div id="lifeChart" style="margin:10px 0 18px"></div>
   <h3>Vida entre eventos por objeto, componente e lado</h3>
@@ -302,7 +306,8 @@ function renderRodante(){
  const component=$("componentFilter").value,assetPrefix=$("assetFilter").value;
  const completionStatuses=$("closingStatuses").value.split(/[\s,;]+/).filter(Boolean);
  const cancellationStatuses=$("cancelStatuses").value.split(/[\s,;]+/).filter(Boolean);
- const r=analyzeRodante(m,{allowProxy,component,assetPrefix,completionStatuses,cancellationStatuses});
+ const allowWeak=$("allowWeak").checked;
+ const r=analyzeRodante(m,{allowProxy,allowWeak,component,assetPrefix,completionStatuses,cancellationStatuses});
  state.report=r;
  metrics("rodanteMetrics",[
   [num(r.candidates.length),"Ordens relacionadas"],[num(r.eligible.length),"Candidatas a substituição"],
@@ -312,7 +317,7 @@ function renderRodante(){
  $("rodanteWarning").textContent=(allowProxy
    ?"CRONOLOGIA EXPLORATÓRIA: utiliza Data-base de início prioritariamente; na ausência dela, Fim da avaria e então Data de Entrada. Isso não equivale à data real de execução."
    :"MODO DATA REAL: sem data de execução preenchida, não será calculado intervalo. As tabelas financeiras continuam disponíveis.")
-  +" Ordens com lado não informado: "+num(r.missingSide)+" (não entram em intervalos). Datas-base futuras: "+num(r.futureDated)+" (não entram em eventos). Ordens sem reserva nesta MB24: "+num(r.withoutReservation)+"."
+  +" Evidências insuficientes: "+num(r.excludedWeak)+". Ordens sem lado: "+num(r.missingSide)+". Datas futuras: "+num(r.futureDated)+". Sem reserva nesta MB24: "+num(r.withoutReservation)+"."
   +(r.mixingComponents?" Não misturamos médias de componentes diferentes.":"");
  const maxMean=Math.max(1,...r.summary.map(x=>x.meanDays));
  $("lifeChart").innerHTML=r.summary.length?r.summary.slice(0,16).map(x=>"<div style=\"display:grid;grid-template-columns:minmax(150px,1fr) 2fr auto;gap:12px;align-items:center;margin:9px 0\"><span class=\"muted\">"+esc(x.asset)+" · "+esc(x.side)+"</span><div class=\"bar\"><i style=\"width:"+Math.round(100*x.meanDays/maxMean)+"%\"></i></div><strong>"+esc(fmtDays(x.meanDays))+"</strong></div>").join(""):"<p class=\"muted\">Ainda não há pares comparáveis: confira tipo de troca, lado, status e datas de referência.</p>";
@@ -329,6 +334,9 @@ function renderRodante(){
   x.order,x.asset,x.operationClass,x.code,x.description,x.unit,x.required,x.registered,x.deleted,x.finalFlag
  ]),200);
  $("materialOrderCount").textContent=num(r.materialsByOrder.length)+" linhas da MB24 relacionadas a ordens filtradas; exibindo até 200. *Valores monetários na moeda da exportação SAP (não validada pelo programa).";
+ table("firstLifeTable",["Ativo","Lado","Base do cálculo","Data inicial","Primeira troca observada","Dias estimados","Trocas observadas","OS","Evidência"],r.initialLifeEstimates.map(x=>[
+  x.asset,x.side,x.originSource,x.originDate,x.firstDate,x.elapsedDays,x.observedReplacements,x.orders,x.evidence
+ ]),200);
  table("intervalTable",["Ativo","Componente","Lado","Pares","Média estimada","Mediana","Mínimo","Máximo"],r.summary.map(x=>[
   x.asset,x.component,x.side,x.intervals,fmtDays(x.meanDays),fmtDays(x.medianDays),fmtDays(x.minDays),fmtDays(x.maxDays)
  ]),150);
@@ -354,6 +362,7 @@ for(const id of ["searchDictionary","searchMaterials","searchOrders","assetFilte
 $("filterDictionary").onchange=renderCatalog;
 $("componentFilter").onchange=renderRodante;
 $("allowProxy").onchange=renderRodante;
+$("allowWeak").onchange=renderRodante;
 $("closingStatuses").oninput=renderRodante;
 $("cancelStatuses").oninput=renderRodante;
 $("exportDictionary").onclick=()=>downloadSheets("dicionario_tecnico_sap",[{name:"Dicionarios",rows:state.model.dictionaries}]);
@@ -366,6 +375,7 @@ $("exportRodante").onclick=()=>{
  downloadSheets("relatorio_rodante_v2",[
   {name:"ResumoVida",rows:r.summary},{name:"Intervalos",rows:r.intervals},
   {name:"Eventos",rows:r.audit},
+  {name:"PrimeiraVida",rows:r.initialLifeEstimates},
   {name:"CustosPorClasse",rows:r.costByClass},
   {name:"CustosPorOrdem",rows:r.financialOrders},
   {name:"MateriaisPorOS",rows:r.materialsByOrder},
