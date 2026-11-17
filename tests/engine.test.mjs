@@ -373,3 +373,22 @@ test("reserva eliminada não demonstra presença de conjunto completo",()=>{
  assert.equal(result.fullMaterial,false);
  assert.equal(result.evidenceLevel,"média (sem MB24 da troca)");
 });
+
+test("IW39 sem coluna Equipamento concilia pela TAG no Campo de ordenação",()=>{
+ const m=createModel({equipment:[{Equipamento:"EQ-100",
+   "Denominação do objeto técnico":"ESCAVADEIRA FICTÍCIA 021-999"}],
+  orders:[{Ordem:"OS-100","Tipo de ordem":"PM01",
+   "Campo de ordenação":"021-999","Texto breve":"TROCAR ESTEIRA LD",
+   "Local de instalação":"OFICINA-GENERICA"}]});
+ assert.equal(m.orders[0].identity.id,"EQ:EQ-100");
+ assert.match(m.orders[0].identity.method,/ordem/i);
+});
+test("TAG no texto da OS resolve caso sem Campo de ordenação nem local exclusivo",()=>{
+ const m=createModel({equipment:[{Equipamento:"EQ-200",
+  "Denominação do objeto técnico":"TRATOR DE ESTEIRAS FICTÍCIO 050-999"}],
+  orders:[{Ordem:"OS-200","Tipo de ordem":"PM01",
+    "Texto breve":"SUBSTITUIR ESTEIRAS LD E LE 050-999",
+    "Local de instalação":"OFICINA-GENERICA"}]});
+ assert.equal(m.orders[0].identity.id,"EQ:EQ-200");
+ assert.equal(m.orders[0].identity.confidence,"baixa");
+});
