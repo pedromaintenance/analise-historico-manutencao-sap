@@ -10,10 +10,10 @@ Analisar o intervalo calendário entre intervenções de material rodante e troc
 
 ## Como usar
 
-Abra `index.html` no navegador, selecione as exportações locais e navegue entre **Cadastros**, **Materiais** e **Ordens & Rodante**. O sistema também aceita apenas uma exportação IW39 ou IW29 e informa as limitações decorrentes.
+Acesse a aplicação via GitHub Pages ou **baixe `standalone.html` e abra-o por duplo clique**. O HTML standalone contém o motor de análise incorporado, evitando o bloqueio de módulos JavaScript em arquivos `file://`. Selecione as exportações locais e navegue entre **Cadastros**, **Materiais** e **Ordens & Rodante**. O sistema também aceita apenas uma exportação IW39 ou IW29 e informa as limitações decorrentes.
 
-Para executar os testes sintéticos (Node.js 20+): `npm test`.
+Para executar testes sintéticos (Node.js 20+): `npm test`. Para regenerar o HTML único após alterações: `npm run build:standalone`.
 
-A biblioteca de leitura XLSX é obtida do CDN ao abrir o HTML; uma conexão é necessária para XLSX. Nenhuma planilha é enviada ao CDN. Para auditoria com isolamento completo de rede, baixe e hospede a dependência localmente ou use CSV offline.
+A biblioteca de leitura XLSX é obtida do CDN ao abrir o HTML; uma conexão é necessária para XLSX. O código próprio não envia planilhas ao CDN, mas uma biblioteca externa executada no navegador pode ter acesso aos dados: **para conteúdo confidencial, submeter a dependência à revisão de TI ou usá-la instalada localmente e auditada**. CSV funciona offline, sem dependência. Nunca publique exportações reais.
 
 Consulte `SECURITY.md` e `docs/METODOLOGIA.md` antes de interpretar médias de consumo.
