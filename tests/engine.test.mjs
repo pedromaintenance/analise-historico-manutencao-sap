@@ -222,3 +222,12 @@ test("reserva apenas de parafusos não valida troca completa, mesmo com status e
  assert.equal(classifyRodante(m.orders[0]).eventStrong,false);
  assert.equal(analyzeRodante(m,{asOf:"2026-11-17"}).initialLifeEstimates.length,0);
 });
+
+test("catalogo de esteira e lagarta com código e sem palavra 'completa' é evidência de conjunto",()=>{
+ const m=createModel({equipment:[{Equipamento:"EQ-A","Denominação do objeto técnico":"TRATOR FICTÍCIO 050-888","Data de aquisição":"01/01/2025"}],
+ orders:[{Ordem:"A","Tipo de ordem":"PM01","Equipamento":"EQ-A","Texto breve":"TROCAR ESTEIRAS LD LE",
+   "Status do sistema":"ENTE","Data-base do início":"01/01/2026","Custos tot.reais":200000}],
+ reservations:[{"Nº reserva":"R-A",Ordem:"A","Texto breve material":"LAGARTA 12345 FABRICANTE","Qtd.necessária":2}]});
+ assert.equal(classifyRodante(m.orders[0]).eventStrong,true);
+ assert.equal(analyzeRodante(m,{asOf:"2026-11-17"}).initialLifeEstimates.length,2);
+});
