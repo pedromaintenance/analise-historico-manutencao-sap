@@ -163,9 +163,12 @@ export function chronology(order) {
   return {dateBase,faultEnd,entry,actual,reference,source,hasTimeline:Boolean(reference)};
 }
 export function machineTag(desc) {
-  const values=[...text(desc).matchAll(/\b\d{3}[- ]\d{3}\b/g)];
-  const m=values.at(-1);
-  return m?m[0].replace(" ","-"):"";
+  const name=text(desc);
+  // A TAG 021-004 tem prioridade sobre o modelo "395" imediatamente anterior.
+  const exact=[...name.matchAll(/\b\d{3}-\d{3}\b/g)].at(-1);
+  if(exact)return exact[0];
+  const spaced=[...name.matchAll(/\b\d{3}\s+\d{3}\b/g)].at(-1);
+  return spaced?spaced[0].replace(/\s+/g,"-"):"";
 }
 export function createModel(bases) {
   const norm = {};
