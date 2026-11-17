@@ -14,13 +14,27 @@
 4. Para auditoria histórica definitiva, necessitamos das datas de montagem/desmontagem e transferências Equipamento ↔ Local.
 
 ## Relatório 01 — rodante
-Componentes distintos: esteira completa, roletes, roda guia, roda motriz, sapatas, tensionamento, material rodante genérico.
-A existência de local denominado "Esteira" não é prova de troca. "Corrente de avanço" de perfuratriz não é corrente de esteira.
-Palavras como "substituir" e "trocar" são somente intenção ou descrição; não demonstram serviço concluído. Um status conclusivo sem data real é evidência provável, não um evento datado. Estados de cancelamento/não execução devem ser excluídos.
-Data real de execução tem precedência. Usar data-base como aproximação é permitido apenas no modo exploratório e deve permanecer explicitamente rotulado.
-Para os intervalos, comparar somente trocas sucessivas do mesmo ativo, componente e lado. Múltiplas ordens do mesmo ativo/componente/lado dentro de sete dias são agrupadas provisoriamente: validar casos legítimos de trocas próximas.
-Somente dois eventos sucessivos formam um intervalo. Média e mediana são medidas **observadas** e podem sofrer censura temporal e viés de seleção.
-Vida em horas exige horímetro registrado na substituição A e na substituição B. Dias de calendário não podem ser convertidos em horas trabalhadas sem uma fonte real de utilização.
+
+**Hierarquia de datas em cada ordem (versão 0.2):**
+1. **Data-base do início da IW39** — referência prioritária para a intervenção programada;
+2. **Fim da avaria da IW29** — fallback quando não existe Data-base; denota encerramento informado da avaria, **não necessariamente o encerramento administrativo da ordem**;
+3. **Data de Entrada da IW39** — fallback final, data de criação da OS.
+
+Todas as três são preservadas e exportadas para auditoria, junto com a fonte efetivamente escolhida. Datas de execução real ficam em coluna independente quando existirem. O intervalo entre Datas-base deve ser nomeado **intervalo calendário estimado entre ordens candidatas**, não duração operacional comprovada da esteira. Referências futuras não formam eventos realizados.
+
+A análise diferencia, por texto e materiais: troca de esteira/conjunto, troca mista, troca parcial/componente, montagem/instalação, ajuste/reposicionamento, inspeção, logística e menções indeterminadas. Troca de módulos, pinos ou sapatas não pode virar troca de esteira completa por simples associação da palavra "esteira". Custo alto aumenta a necessidade de revisar o registro, mas não prova sozinho que o serviço foi concluído.
+
+Para os intervalos, comparar somente dois eventos sucessivos do mesmo ativo, componente e **lado**; eventos sem lado definido permanecem na auditoria de custos, mas não entram na série de vida. Agrupamento de até sete dias é provisório e exige validação.
+
+**Evidências complementares:** status de ordem configuráveis + existência de custo real indicam movimentação contábil, mas não asseguram substituição final. Distinguir datas de referência de comprovação de execução. Prazos podem variar por reprogramação.
+
+## Análise econômica e materiais
+
+- A **IW39** dispõe de Custos totais plan. e Custos tot.reais por OS. A ferramenta sumariza total e mediana de valores positivos por classe de intervenção.
+- **Custo real da ordem não é necessariamente custo exclusivo do rodante**: pode agregar serviços, frete, outros componentes e mão de obra.
+- A **MB24** fornece códigos, descrições, UM, necessidade, registro, reserva e vínculo com ordem. Os itens sem código SAP são retidos. A ausência de linha na MB24 pode decorrer de extração temporal / reservas encerradas ou fora do filtro e **não prova falta de material aplicado**.
+- Somatórios de quantidades respeitam unidades de medida. Preço unitário não está na MB24 fornecida. Não distribuir o custo da OS proporcionalmente aos materiais sem base de preço.
+- Para custo real de material por ordem, acrescentar MB51 / movimentos efetivos / estornos, ou relatório de itens de custo da OS.
 
 ## Não misturar indicadores
 - Intervalo entre trocas: dias calendário.
