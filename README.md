@@ -39,3 +39,15 @@ O relatório exportado contém abas independentes: resumo de vida, intervalos, e
 ## Primeira vida observada de esteiras
 
 O sistema disponibiliza agora uma aba **PrimeiraVida** no relatório e uma tabela no painel para equipamentos com uma ou mais trocas observadas. A leitura do equipamento aceita `Data de aquisição` e, opcionalmente, `Data de entrada em serviço` / `Data de comissionamento`; o segundo campo prevalece. As origens de datas e a limitação de estimativa são indicadas. O modo prudente evita incluir na vida trocas de parafusos, FPS e outras intervenções parciais ou ordens sem evidência financeira/material. A seleção de eventos com evidência fraca é explicitamente opt-in.
+
+## Versão 0.3 — carga única, backup portátil e ciclo de vida
+
+A ferramenta permite salvar e reabrir as bases sem repetir cinco importações:
+
+- **Exportar pacote Excel completo:** gera o arquivo sap_pacote_enriquecido.xlsx, com abas de Equipamentos, Locais, Ordens IW39, Notas IW29 e Reservas MB24. Cada aba preserva campos SAP e inclui enriquecimentos. Em uma próxima sessão, importe apenas esse arquivo na opção **Carregar pacote único**.
+- **Exportar sessão JSON:** gera um backup de todas as linhas importadas e suas origens, com os filtros aplicados. Reimporte em **Restaurar sessão**, sem precisar reconfigurar a análise.
+- **Ciclo de vida (tela 04):** tabela por equipamento, lado e Ordem SAP exata, eventos consecutivos e primeira vida estimada, além de auditoria e reservas materiais por OS. Exporta planilha com abas Equipamentos, CiclosPorOS, AuditoriaOS, MateriaisPorOS e CiclosEmAberto.
+
+**Segurança:** tanto o pacote quanto o JSON contêm dados corporativos reais. O download é local. Não compartilhe em GitHub, GitHub Pages, tickets ou canais públicos. O navegador não salva automaticamente a sessão: exporte o backup antes de atualizar, limpar os dados ou fechar a aba.
+
+Uma troca simultânea dos lados esquerdo e direito representa duas esteiras físicas, mas uma única OS e um único custo de ordem. Dados de início de planejamento não comprovam a data da substituição executada. Tempo contado desde aquisição representa estimativa de primeira vida, e não vida comprovada da esteira original.
