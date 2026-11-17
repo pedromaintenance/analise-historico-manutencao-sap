@@ -351,3 +351,25 @@ test("pacote enriquecido conserva as cinco fontes e pode ser reprocessado",()=>{
  assert.equal(second.orders[0].notes[0].id,"N-FICT");
  assert.equal(second.byEquip.get("EQ-FICT").acquisitionDate,"01/01/2025");
 });
+
+test("exportação enriquecida oferece data de entrada em serviço editável",()=>{
+ const m=createModel({equipment:[{Equipamento:"EQ-NEW",
+  "Denominação do objeto técnico":"PERFURATRIZ FICTÍCIA 010-999",
+  "Data de aquisição":"01/01/2026"}]});
+ const rows=enrichRows(m,"equipment");
+ assert.ok(Object.hasOwn(rows[0],"Data de entrada em serviço"));
+ const edited={...rows[0],"Data de entrada em serviço":"01/02/2026"};
+ assert.equal(createModel({equipment:[edited]}).byEquip.get("EQ-NEW").serviceStart,"01/02/2026");
+});
+test("reserva eliminada não demonstra presença de conjunto completo",()=>{
+ const m=createModel({equipment:[{Equipamento:"EQ-NEW",
+  "Denominação do objeto técnico":"TRATOR DE ESTEIRAS FICTÍCIO 050-999"}],
+  orders:[{Ordem:"OS-RED","Tipo de ordem":"PM01",Equipamento:"EQ-NEW",
+   "Texto breve":"TROCAR ESTEIRA LD","Data-base do início":"01/01/2026",
+   "Status do sistema":"ENTE","Custos tot.reais":1000}],
+  reservations:[{"Nº reserva":"RES-RED",Ordem:"OS-RED","Material":"MAT-FICT",
+   "Texto breve material":"ESTEIRA COMPLETA","Item foi eliminado":"X"}]});
+ const result=classifyRodante(m.orders[0]);
+ assert.equal(result.fullMaterial,false);
+ assert.equal(result.evidenceLevel,"média (sem MB24 da troca)");
+});
