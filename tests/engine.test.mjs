@@ -312,3 +312,21 @@ test("ordem sem lado conhecido permanece na auditoria, sem produzir vida calcula
  assert.equal(r.audit[0].order,"OS-SEM-LADO");
  assert.equal(r.metrics.missingSide,1);
 });
+
+test("a TAG da escavadeira CAT 395 não é confundida com o modelo",()=>{
+ const m=createModel({equipment:[{Equipamento:"EQ-395",
+   "Denominação do objeto técnico":"ESCAVADEIRA HIDRÁULICA CAT 395 021-004"}]});
+ assert.equal(m.byTag.get("021-004")[0].id,"EQ-395");
+ assert.equal(m.byTag.has("395-021"),false);
+});
+test("nota sem ordem própria é localizada pela nota vinculada na IW39",()=>{
+ const m=createModel({equipment:[{Equipamento:"EQ-TR",
+  "Denominação do objeto técnico":"TRATOR DE ESTEIRAS FICTICIO 050-999"}],
+  orders:[{Ordem:"OS-007","Tipo de ordem":"PM01","Nota":"N-007",
+   "Equipamento":"EQ-TR","Texto breve":"SUBSTITUIR ESTEIRA LD",
+   "Data-base do início":"01/01/2026"}],
+  notes:[{"Tipo de nota":"M1","Nota":"N-007","Fim da avaria":"04/01/2026"}]});
+ assert.equal(m.orders[0].notes.length,1);
+ assert.equal(m.orders[0].notes[0].id,"N-007");
+ assert.equal(classifyRodante(m.orders[0]).faultEnd,"2026-01-04");
+});
