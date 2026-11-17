@@ -101,7 +101,7 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
    <button id="exportMaterials">Exportar materiais enriquecidos</button></div>
   <div class="toolbar"><input id="searchMaterials" placeholder="Buscar código, material ou descrição"></div>
   <div class="tablewrap"><table id="materialsTable"></table></div>
-  <div class="notice">A quantidade necessária e os registros da reserva não devem ser confundidos com movimentações confirmadas (MB51 / documentos de material). A análise de vida útil não considera uma simples reserva como prova de troca.</div>
+  <div class="notice">Materiais sem código SAP também permanecem no catálogo; quantidades são somadas somente dentro da mesma unidade. A quantidade necessária e os registros da reserva não devem ser confundidos com movimentações confirmadas (MB51 / documentos de material). A análise de vida útil não considera uma simples reserva como prova de troca.</div>
  </div>
 </section>
 <section id="historico" class="view">
@@ -127,14 +127,22 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
     <option value="material rodante geral">Rodante geral</option><option value="todos">Todos os componentes</option>
    </select>
    <input id="assetFilter" placeholder="Filtrar máquina, TAG ou denominação">
-   <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="allowProxy"> Incluir estimativas com data-base</label>
+   <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="allowProxy" checked> Usar datas de referência (Data-base → Fim da avaria → Entrada)</label>
   </div><div class="toolbar">
    <label for="closingStatuses">Status indicativos de conclusão:</label><input id="closingStatuses" value="ENTE ENCE" aria-label="Status conclusivos separados por espaço">
    <label for="cancelStatuses">Status de cancelamento:</label><input id="cancelStatuses" value="NEXE CANC" aria-label="Status de cancelamento separados por espaço">
   </div>
   <div id="rodanteWarning" class="notice"></div>
   <div class="summary" id="rodanteMetrics"></div>
-  <h3>Comparação entre objetos técnicos</h3>
+  <h3>Custos e composição das intervenções</h3>
+  <p class="help">Análise dos custos planejados e reais da ordem e dos materiais reservados. Custo da ordem não significa, necessariamente, custo exclusivo do rodante; ausência na MB24 não prova ausência de consumo.</p>
+  <div class="tablewrap"><table id="costClassTable"></table></div>
+  <h3 style="margin-top:18px">Ordens — comparação financeira e evidências de execução</h3>
+  <div class="tablewrap"><table id="costOrderTable"></table></div>
+  <h3 style="margin-top:18px">Materiais associados às ordens — MB24</h3>
+  <div class="tablewrap"><table id="materialsOrderTable"></table></div>
+  <p class="muted" id="materialOrderCount"></p>
+  <h3 style="margin-top:18px">Comparação entre objetos técnicos</h3>
   <div id="lifeChart" style="margin:10px 0 18px"></div>
   <h3>Vida entre eventos por objeto, componente e lado</h3>
   <div class="tablewrap"><table id="intervalTable"></table></div>
@@ -204,7 +212,7 @@ async function readSource(file,forced){
  } else {
   if(!globalThis.XLSX)throw new Error("Leitor XLSX indisponível. Verifique o acesso ao CDN ou exporte CSV.");
   const workbook=XLSX.read(await file.arrayBuffer(),{type:"array",cellDates:false});
-  datasets=workbook.SheetNames.map(sheet=>({sheet,rows:XLSX.utils.sheet_to_json(workbook.Sheets[sheet],{raw:false,defval:""})}));
+  datasets=workbook.SheetNames.map(sheet=>({sheet,rows:XLSX.utils.sheet_to_json(workbook.Sheets[sheet],{raw:true,defval:""})}));
  }
  const byRole=new Map();
  for(const item of datasets) {
@@ -269,11 +277,11 @@ function renderMaterials(){
   [num(m.counts.reservations),"Linhas MB24"],[num(list.length),"Materiais distintos"],
   [num(new Set(m.norm.reservations.map(x=>x.order).filter(Boolean)).size),"Ordens referenciadas"],
   [num(m.norm.reservations.filter(x=>!x.order).length),"Sem número de ordem"],
-  [num(m.orphans.reservations),"Reservas sem ordem na base IW39"]
+  [num(m.norm.reservations.filter(x=>!x.material).length),"Linhas sem código SAP"]
  ]);
  const term=key($("searchMaterials").value);
  const filtered=list.filter(x=>!term||key(x.Material+" "+x.Descrição).includes(term));
- table("materialsTable",["Material","Descrição da reserva","Linhas","Ordens","Qtd. solicitada*"],filtered.map(x=>[x.Material,x.Descrição,x["Linhas MB24"],x["Ordens distintas"],x["Quantidade solicitada (heterogênea: verificar UM)"]]),180);
+ table("materialsTable",["Material","Descrição da reserva","UM","Sem cadastro","Linhas","Ordens","Quantidade requerida"],filtered.map(x=>[x.Material,x.Descrição,x.UM,x["Sem cadastro"],x["Linhas MB24"],x["Ordens distintas"],x["Quantidade solicitada (por unidade)"]]),180);
 }
 function renderHistory(){
  const m=state.model;
@@ -288,38 +296,50 @@ function renderHistory(){
  ]),120);
  renderRodante();
 }
+function fmtCost(v){return Number(v||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function renderRodante(){
- const m=state.model;
- const allowProxy=$("allowProxy").checked;
+ const m=state.model,allowProxy=$("allowProxy").checked;
  const component=$("componentFilter").value,assetPrefix=$("assetFilter").value;
  const completionStatuses=$("closingStatuses").value.split(/[\s,;]+/).filter(Boolean);
  const cancellationStatuses=$("cancelStatuses").value.split(/[\s,;]+/).filter(Boolean);
  const r=analyzeRodante(m,{allowProxy,component,assetPrefix,completionStatuses,cancellationStatuses});
  state.report=r;
  metrics("rodanteMetrics",[
-  [num(r.candidates.length),"Ordens com componente"],[num(r.eligible.length),"Ordens candidatas a troca"],
-  [num(r.audit.length),"Eventos agrupados"],[num(r.intervals.length),"Intervalos calculáveis"],
-  [fmtDays(r.meanDays),"Média entre trocas"]
+  [num(r.candidates.length),"Ordens relacionadas"],[num(r.eligible.length),"Candidatas a substituição"],
+  [num(r.audit.length),"Eventos datados e agrupados"],[num(r.intervals.length),"Intervalos comparáveis"],
+  [fmtDays(r.meanDays),"Intervalo médio estimado"]
  ]);
- const uncertain=r.eligible.filter(x=>x.analysis.evidence==="provável (sem data real)").length;
- const pending=r.eligible.filter(x=>x.analysis.evidence==="planejado / pendente").length;
- const notice=allowProxy
-  ?"MODO EXPLORATÓRIO: estimativas podem usar data-base em substituição à data real. Os intervalos não representam vida útil comprovada. Confirme as intervenções antes de decidir compra, PM ou garantia."
-  :"MODO RIGOROSO: somente trocas com status indicativo de execução E data real são usadas nos intervalos. Ordens sem data real ("+num(uncertain)+" prováveis neste filtro) não entram na média. "+num(pending)+" permanecem planejadas/pendentes.";
- $("rodanteWarning").textContent=notice+(r.mixingComponents?" ATENÇÃO: o conjunto contém componentes de naturezas diferentes; não é apresentada média global misturada. Selecione um componente.":"");
+ $("rodanteWarning").textContent=(allowProxy
+   ?"CRONOLOGIA EXPLORATÓRIA: utiliza Data-base de início prioritariamente; na ausência dela, Fim da avaria e então Data de Entrada. Isso não equivale à data real de execução."
+   :"MODO DATA REAL: sem data de execução preenchida, não será calculado intervalo. As tabelas financeiras continuam disponíveis.")
+  +" Ordens com lado não informado: "+num(r.missingSide)+" (não entram em intervalos). Ordens sem reserva nesta MB24: "+num(r.withoutReservation)+"."
+  +(r.mixingComponents?" Não misturamos médias de componentes diferentes.":"");
  const maxMean=Math.max(1,...r.summary.map(x=>x.meanDays));
- $("lifeChart").innerHTML=r.summary.length?r.summary.slice(0,16).map(x=>"<div style=\"display:grid;grid-template-columns:minmax(150px,1fr) 2fr auto;gap:12px;align-items:center;margin:9px 0\"><span class=\"muted\">"+esc(x.asset)+" · "+esc(x.side)+"</span><div class=\"bar\"><i style=\"width:"+Math.round(100*x.meanDays/maxMean)+"%\"></i></div><strong>"+esc(fmtDays(x.meanDays))+"</strong></div>").join(""):"<p class=\"muted\">Não existem pares de eventos comparáveis neste filtro. Veja a lista de ordens candidatas abaixo.</p>";
- table("intervalTable",["Ativo","Componente","Lado","Intervalos","Média","Mediana","Mínimo","Máximo"],r.summary.map(x=>[
+ $("lifeChart").innerHTML=r.summary.length?r.summary.slice(0,16).map(x=>"<div style=\"display:grid;grid-template-columns:minmax(150px,1fr) 2fr auto;gap:12px;align-items:center;margin:9px 0\"><span class=\"muted\">"+esc(x.asset)+" · "+esc(x.side)+"</span><div class=\"bar\"><i style=\"width:"+Math.round(100*x.meanDays/maxMean)+"%\"></i></div><strong>"+esc(fmtDays(x.meanDays))+"</strong></div>").join(""):"<p class=\"muted\">Ainda não há pares comparáveis: confira tipo de troca, lado, status e datas de referência.</p>";
+ table("costClassTable",["Classe de intervenção","Ordens","Com custo real positivo","Custo real total*","Custo planejado total*","Mediana positiva*","OS com MB24"],r.costByClass.map(x=>[
+  x.operationClass,x.orders,x.withRealCost,fmtCost(x.totalReal),fmtCost(x.totalPlanned),
+  x.medianPositive==null?"—":fmtCost(x.medianPositive),x.withReservation
+ ]),50);
+ table("costOrderTable",["Ordem","Ativo","Classe","Texto","Data-base","Fim avaria","Entrada","Referência","Status","Custo real*","Custo plan.*","Itens MB24","Evidência"],r.financialOrders.slice().sort((a,b)=>b.costReal-a.costReal).map(x=>[
+  x.order,x.asset,x.operationClass,x.description,x.dateBase,x.faultEnd,x.entry,
+  x.referenceSource+" "+x.reference,x.status,fmtCost(x.costReal),fmtCost(x.costPlanned),
+  x.reserveLines,x.evidence
+ ]),220);
+ table("materialsOrderTable",["Ordem","Ativo","Classe","Material","Descrição","UM","Qtd. necessária","Qtd. registro","Eliminado","Registro final"],r.materialsByOrder.map(x=>[
+  x.order,x.asset,x.operationClass,x.code,x.description,x.unit,x.required,x.registered,x.deleted,x.finalFlag
+ ]),200);
+ $("materialOrderCount").textContent=num(r.materialsByOrder.length)+" linhas da MB24 relacionadas a ordens filtradas; exibindo até 200. *Valores monetários na moeda da exportação SAP (não validada pelo programa).";
+ table("intervalTable",["Ativo","Componente","Lado","Pares","Média estimada","Mediana","Mínimo","Máximo"],r.summary.map(x=>[
   x.asset,x.component,x.side,x.intervals,fmtDays(x.meanDays),fmtDays(x.medianDays),fmtDays(x.minDays),fmtDays(x.maxDays)
  ]),150);
- $("intervalCount").textContent="Intervalos entre substituições comparáveis: "+num(r.intervals.length)+
-  ". Múltiplas ordens do mesmo componente e lado dentro de 7 dias são agrupadas em um único evento provisório; verificar em auditoria.";
- table("eventsTable",["Objeto","Componente","Lado","Data","Ordens vinculadas","Qualidade"],r.audit.map(x=>[
-  x.asset,x.component,x.side,x.date,x.orders,x.origin
+ $("intervalCount").textContent="Intervalos entre duas datas de referência de ordens candidatas a substituição do mesmo ativo, lado e componente: "+num(r.intervals.length)+". Agrupamento provisório de ordens próximas: "+num(r.clustered)+".";
+ table("eventsTable",["Ativo","Componente","Lado","Data referência","Fonte","Ordens","Custo real total*"],r.audit.map(x=>[
+  x.asset,x.component,x.side,x.date,x.dateSource,x.orders,fmtCost(x.realCost)
  ]),180);
- table("candidatesTable",["Ordem","Objeto","Componente","Lado","Descrição","Status","Evidência","Data real","Data-base","Reservas"],r.candidates.map(o=>[
-  o.id,o.identity.label,o.analysis.component,o.analysis.side,o.description,o.sys,o.analysis.evidence,
-  o.analysis.dateReal,o.analysis.dateProxy,o.reserves.map(x=>x.material).join(", ")
+ table("candidatesTable",["Ordem","Ativo","Classe","Componente","Lado","Texto","Data-base","Fim avaria","Entrada","Custo real*","Status","Evidência","Itens MB24"],r.candidates.map(o=>[
+  o.id,o.identity.label,o.analysis.operationClass,o.analysis.component,o.analysis.side,o.description,
+  o.analysis.dateBase,o.analysis.faultEnd,o.analysis.entry,fmtCost(o.analysis.costReal),
+  o.sys,o.analysis.evidence,o.reserves.length
  ]),200);
 }
 function renderAll(){renderCatalog();renderMaterials();renderHistory();}
@@ -342,13 +362,23 @@ $("exportEnriched").onclick=()=>{
 };
 $("exportMaterials").onclick=()=>downloadSheets("materiais_observados_mb24",[{name:"Materiais",rows:exportMaterials(state.model)}]);
 $("exportRodante").onclick=()=>{
- const r=state.report;downloadSheets("relatorio_rodante",[
-  {name:"Resumo",rows:r.summary},{name:"Intervalos",rows:r.intervals.map(x=>({
-   Ativo:x.asset,Componente:x.component,Lado:x.side,Inicio:x.first,Fim:x.last,Dias:x.days,Ordens:x.orders,Qualidade:x.quality
-  }))},{name:"Eventos",rows:r.audit},{name:"Candidatas",rows:r.candidates.map(x=>({
-   Ordem:x.id,Ativo:x.identity.label,Componente:x.analysis.component,Lado:x.analysis.side,Texto:x.description,
-   Evidencia:x.analysis.evidence,DataReal:x.analysis.dateReal,DataBase:x.analysis.dateProxy,Status:x.sys
-  }))}]);
+ const r=state.report;
+ downloadSheets("relatorio_rodante_v2",[
+  {name:"ResumoVida",rows:r.summary},{name:"Intervalos",rows:r.intervals},
+  {name:"Eventos",rows:r.audit},
+  {name:"CustosPorClasse",rows:r.costByClass},
+  {name:"CustosPorOrdem",rows:r.financialOrders},
+  {name:"MateriaisPorOS",rows:r.materialsByOrder},
+  {name:"TriagemCandidatas",rows:r.candidates.map(x=>({
+   Ordem:x.id,Ativo:x.identity.label,Componente:x.analysis.component,
+   Classe:x.analysis.operationClass,Lado:x.analysis.side,Descricao:x.description,
+   Status:x.sys,Evidencia:x.analysis.evidence,DataBase:x.analysis.dateBase,
+   FimAvaria:x.analysis.faultEnd,DataEntrada:x.analysis.entry,
+   FonteReferencia:x.analysis.source,DataReferencia:x.analysis.reference,
+   CustoReal:x.analysis.costReal,CustoPlanejado:x.analysis.costPlanned,
+   QuantidadeItensMB24:x.reserves.length
+  }))}
+ ]);
 };
 $("resetAll").onclick=()=>{state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];log("Sessão de dados limpa.");rebuild();};
 rebuild();
