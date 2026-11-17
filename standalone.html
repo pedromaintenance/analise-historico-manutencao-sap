@@ -47,6 +47,13 @@ code{font-family:Consolas,monospace;background:#eef4f5;padding:2px 4px;border-ra
 footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
 @media(max-width:1000px){.summary{grid-template-columns:repeat(3,1fr)}.cols2,.cols3{grid-template-columns:1fr}.fileline{grid-template-columns:1fr}}
 @media(max-width:580px){.summary{grid-template-columns:repeat(2,1fr)}.container{padding:14px}.panel{padding:14px}.tabs{gap:3px}.tabs button{padding:10px 8px;font-size:12px}.stat b{font-size:20px}}
+.dash-selection-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;max-height:310px;overflow:auto;padding:3px}
+.dash-machine-choice{border:1px solid var(--line);border-radius:10px;padding:11px;background:#f9fbfc;display:flex;align-items:flex-start;gap:8px;cursor:pointer}
+.dash-machine-choice:hover{border-color:var(--blue)}
+.dash-machine-choice b{display:block;color:var(--blue)}
+.dash-machine-choice small{display:block;color:var(--sub)}
+.dash-machine-choice input{flex:none;margin-top:3px}
+@media print{#dashboard .panel:not(:last-child),header,footer{display:none!important}#dashboard .panel:last-child{border:0;box-shadow:none;padding:0}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 </head>
@@ -61,6 +68,7 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
     <button data-tab="materiais">02 · Materiais & MB24</button>
     <button data-tab="historico">03 · Ordens & rodante</button>
     <button data-tab="ciclo">04 · Ciclo de vida</button>
+    <button data-tab="dashboard">05 · Dashboard</button>
   </nav>
 </div></header>
 <main class="container">
@@ -226,6 +234,35 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
    <div class="tablewrap"><table id="lifeMaterialsTable"></table></div>
    <h3 style="margin-top:18px">Ciclos ainda em aberto (censurados)</h3>
    <div class="tablewrap"><table id="lifeOpenTable"></table></div>
+ </div>
+</section>
+
+<section id="dashboard" class="view">
+ <div class="panel">
+  <div class="split"><div><div class="headline">Gerador de relatório · Offline · Dados em memória</div>
+    <h2>Dashboard de ciclo de vida do material rodante</h2>
+    <p class="help">Escolha as máquinas que entram no relatório. Cada equipamento apresenta TAG, tipo, modelo, início de operação aproximado, ciclo em dias, quantidade de ordens de troca e histórico de custos. Clique em <strong>Ver materiais</strong> na linha da OS para consultar as reservas.</p></div>
+    <button id="dashExportHtml" class="primary">Exportar dashboard HTML</button></div>
+  <div class="notice warning">O dashboard exportado incorpora os dados das máquinas selecionadas. É um arquivo privado: mantenha-o em pasta corporativa autorizada. Não o publique no GitHub, Pages ou repositórios de código.</div>
+  <div class="toolbar">
+    <label><input type="checkbox" id="dashAllowWeak"> Incluir candidatas de evidência fraca</label>
+    <label><input type="checkbox" id="dashShowOther" checked> Mostrar outras intervenções na tabela</label>
+  </div>
+  <div class="summary" id="dashStats"></div>
+ </div>
+ <div class="panel">
+  <div class="split"><div><h3>Selecionar equipamentos para o relatório</h3>
+    <p class="muted" id="dashSelectionCount"></p></div>
+    <div class="toolbar"><button id="dashIncludeVisible" type="button">Incluir visíveis</button><button id="dashExcludeVisible" type="button">Excluir visíveis</button></div></div>
+  <div class="toolbar"><input id="dashSearch" placeholder="Filtrar por TAG, modelo ou descrição">
+    <select id="dashFamily"><option value="">Todas as famílias</option></select></div>
+  <div id="dashSelectionList" class="dash-selection-list" role="group" aria-label="Equipamentos incluídos no dashboard"></div>
+ </div>
+ <div class="panel" style="padding:14px">
+  <div class="split"><div><h3>Prévia do relatório por equipamento</h3>
+    <p class="muted">A seleção acima controla os equipamentos exibidos e exportados. Valores de custo representam a ordem completa; as datas-base são planejadas.</p></div>
+    <span id="dashPreviewCount" class="pill"></span></div>
+  <div id="dashPreview"></div>
  </div>
 </section>
 </main>
@@ -1046,7 +1083,183 @@ function restoreSession(value) {
     settings:value.settings&&typeof value.settings==="object"&&!Array.isArray(value.settings)?value.settings:{}};
 }
 
-const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null,lifecycle:null};
+const DashboardModule=(function(){
+/* Gerador de relatório local — somente código, nenhum cadastro real. */
+const DASHBOARD_VERSION="1.0";
+const toText=v=>v==null?"":String(v);
+const escapeHtml=v=>toText(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const dateBR=v=>{const s=toText(v);const m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);return m?m[3]+"/"+m[2]+"/"+m[1]:s||"—";};
+const money=v=>Number.isFinite(Number(v))?Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
+const days=v=>Number.isFinite(Number(v))&&v!==""?Math.round(Number(v)).toLocaleString("pt-BR"):"—";
+const median=xs=>{if(!xs.length)return null;const s=[...xs].sort((a,b)=>a-b),i=Math.floor(s.length/2);return s.length%2?s[i]:(s[i-1]+s[i])/2};
+function inferEquipmentModel(asset,model=""){
+ const s=(toText(model)+" "+toText(asset)).toUpperCase();
+ const match=s.match(/\b(DR410I|DI650I|D560|D9T|D9R|D9|D8|D7|D6|6030|395|374|352|336|320|313|303\.5|PC[0-9]+)\b/);
+ return match?match[1]:toText(model)||"Não identificado";
+}
+function buildDashboardData(lifecycle,{excluded=[],includeAll=true,createdAt=new Date().toISOString(),title="Ciclo de Vida — Material Rodante"}={}){
+ if(!lifecycle||!Array.isArray(lifecycle.equipmentSummary)||!Array.isArray(lifecycle.audit))throw new Error("Relatório de ciclo de vida inválido.");
+ const excludedIds=new Set(excluded.map(toText));
+ const machines=lifecycle.equipmentSummary.map(m=>{
+  const id=toText(m.equipment||m.objectId||m.tag||m.asset);
+  const audits=lifecycle.audit.filter(a=>toText(a.equipment||a.objectId||a.tag)===id||(!a.equipment&&a.asset===m.asset))
+   .sort((a,b)=>toText(b.dateReference||b.reference).localeCompare(toText(a.dateReference||a.reference)));
+  const unique=new Map();
+  for(const a of audits){const os=toText(a.order);if(os&&!unique.has(os))unique.set(os,a);}
+  const cycles=(lifecycle.cycles||[]).filter(c=>toText(c.equipment||c.objectId||c.tag)===id||(!c.equipment&&c.asset===m.asset));
+  const knownFirst=cycles.filter(c=>toText(c.cycleType||c.kind).toLowerCase().includes("primeira")&&Number.isFinite(Number(c.days??c.elapsedDays))&&toText(c.days??c.elapsedDays)!=="").map(c=>Number(c.days??c.elapsedDays));
+  const subsequent=cycles.filter(c=>toText(c.cycleType||c.kind).toLowerCase().includes("subsequente")&&Number.isFinite(Number(c.days??c.elapsedDays))&&toText(c.days??c.elapsedDays)!=="").map(c=>Number(c.days??c.elapsedDays));
+  const stat=subsequent.length?median(subsequent):knownFirst.length?median(knownFirst):null;
+  const statKind=subsequent.length?"Mediana entre substituições":knownFirst.length?"Tempo até 1ª troca (estimado)":"Sem ciclo estimável";
+  const acceptedOS=new Set(cycles.map(c=>toText(c.order)).filter(Boolean));
+  const materialDetails=(lifecycle.materialDetails||[]).filter(x=>toText(x.equipment||x.objectId||x.tag)===id||(!x.equipment&&x.asset===m.asset));
+  const materialByOrder=new Map();
+  for(const r of materialDetails){const os=toText(r.order);if(!materialByOrder.has(os))materialByOrder.set(os,[]);materialByOrder.get(os).push({
+   reservation:toText(r.reservation),material:toText(r.material||r.code),description:toText(r.description),
+   qty:toText(r.required??r.qty),unit:toText(r.unit),deleted:toText(r.deleted),finalFlag:toText(r.finalFlag)
+  });}
+  const orders=[...unique.values()].map(a=>{
+    const os=toText(a.order);
+    const materials=materialByOrder.get(os)||[];
+    return {
+     order:os,description:toText(a.description),dateBase:toText(a.dateBase),
+     faultEnd:toText(a.faultEnd),entry:toText(a.entry),dateReference:toText(a.dateReference||a.reference),
+     referenceSource:toText(a.referenceSource||a.dateSource),costReal:Number(a.costReal??a.cost??0)||0,
+     costPlanned:Number(a.costPlanned??a.planned??0)||0,
+     classification:toText(a.operationClass||a.classification),status:toText(a.status),
+     evidence:toText(a.evidence||a.confidence),reason:toText(a.reason||a.justification),
+     isChange:acceptedOS.has(os),side:toText(a.side),materials,
+     materialCount:materials.length||Number(a.reserveCount??a.materialCount??0)||0
+    };
+  });
+  const operationalStart=toText(m.commissioning||m.commissioned||m.serviceStart||m.acquisition);
+  const operationalSource=m.commissioning||m.commissioned||m.serviceStart?"Início em serviço":"Aquisição — estimativa";
+  return {
+   id,equipment:toText(m.equipment||""),tag:toText(m.tag),asset:toText(m.asset),
+   family:toText(m.family),model:inferEquipmentModel(m.asset,m.model),
+   operationalStart,operationalSource,days:stat,daysKind:statKind,
+   intervalCount:subsequent.length,firstCount:knownFirst.length,
+   changeOrders:acceptedOS.size,trackedSides:cycles.length,
+   orders,selected:!excludedIds.has(id),
+   noChangeMessage:acceptedOS.size?"":"Nenhuma troca de conjunto qualificada no recorte; ordens de inspeção e reparo permanecem para consulta."
+  };
+ });
+ return {format:"sap-rodante-dashboard",version:DASHBOARD_VERSION,title,createdAt,
+  disclaimer:"Datas-base são planejadas e não comprovam execução. Aquisição não comprova início de serviço nem instalação da esteira original. Valores monetários são custos da OS, não necessariamente apenas do material rodante. Reservas não comprovam consumo físico.",
+  machines:includeAll?machines:machines.filter(m=>m.selected)};
+}
+
+const DASHBOARD_STYLE=[
+".report-app{font-family:Segoe UI,Arial,sans-serif;color:#173042;font-size:14px;line-height:1.52}",
+".report-app *{box-sizing:border-box}.report-app .report-grid{display:grid;gap:16px}",
+".report-app .report-machine{background:#fff;border:1px solid #d8e3e7;border-radius:15px;overflow:hidden;box-shadow:0 7px 26px #143f4e0d}",
+".report-app .report-machine-header{padding:18px 20px;background:linear-gradient(110deg,#073d51,#005471);color:white;display:flex;gap:20px;align-items:center;justify-content:space-between;flex-wrap:wrap;border-bottom:3px solid #c3942c}",
+".report-app .report-tag{font-weight:850;font-size:24px;letter-spacing:.03em;color:#f3d181}",
+".report-app .report-type{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:#bcd9e3}",
+".report-app .report-name{font-size:15px;font-weight:700;margin:4px 0}",
+".report-app .report-sub{font-size:12px;color:#e1ecf0}",
+".report-app .report-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:16px 18px 12px}",
+".report-app .report-kpi{padding:15px;background:#f4f8fa;border:1px solid #dbe5e9;border-radius:12px}",
+".report-app .report-kpi .value{font-size:26px;font-weight:850;color:#005471;line-height:1.12}",
+".report-app .report-kpi .label{color:#57717f;font-size:12px;margin-top:5px}",
+".report-app .report-note{padding:0 18px 12px;color:#607783;font-size:12px}",
+".report-app .report-section-head{padding:11px 18px;font-weight:800;background:#f5f8f9;border-top:1px solid #e2eaed;color:#254d60}",
+".report-app .report-table-scroller{overflow:auto;max-width:100%}",
+".report-app table{width:100%;border-collapse:collapse;text-align:left;white-space:nowrap;font-size:12px}",
+".report-app th{font-weight:800;background:#e9f0f3;color:#2e4d5c;padding:10px 11px}",
+".report-app td{padding:10px 11px;border-top:1px solid #e3eaee;vertical-align:top}",
+".report-app td.description{min-width:190px;max-width:410px;white-space:normal}",
+".report-app tr:hover td{background:#f7fafb}",
+".report-app .report-pill{font-size:11px;display:inline-block;padding:3px 9px;border-radius:99px;background:#eaf5ed;color:#166949;font-weight:800}",
+".report-app .report-pill.review{background:#fff1dd;color:#8d6322}",
+".report-app details summary{cursor:pointer;color:#005471;font-weight:750;white-space:nowrap;list-style:none}",
+".report-app details summary::before{content:'▸ ';color:#c3942c}.report-app details[open] summary::before{content:'▾ '}",
+".report-app .report-materials{margin-top:10px;max-width:540px;border:1px solid #d8e5e9;border-radius:8px;overflow:auto;max-height:240px}",
+".report-app .report-materials table{font-size:11px}.report-app .report-materials td,.report-app .report-materials th{padding:7px}",
+".report-app .report-materials p{padding:9px;white-space:normal;color:#6a7d85;margin:0}",
+".report-app .report-footer{padding:13px 18px;color:#536b75;font-size:12px;background:#f7fafb}",
+".report-app .report-empty{padding:14px 18px;color:#667f8b}",
+".report-app:not(.report-show-other) tr.report-other{display:none}",
+".report-app .report-nochange{padding:6px 18px 16px;color:#976e2e;font-size:12px}",
+"@media(max-width:700px){.report-app .report-kpis{grid-template-columns:1fr 1fr}.report-app .report-machine-header{padding:15px}.report-app .report-tag{font-size:20px}.report-app .report-kpi .value{font-size:22px}}",
+"@media print{.report-app .report-machine{break-inside:avoid;box-shadow:none;margin-bottom:10px}.report-app details:not([open]) .report-materials{display:none}}"
+].join("");
+
+function renderDashboardCards(data,{includeOther=false}={}){
+ if(!data||!Array.isArray(data.machines))throw new Error("Dados do dashboard inválidos.");
+ const visible=data.machines.filter(m=>m.selected!==false);
+ const head='<div class="report-app'+(includeOther?' report-show-other':'')+'"><div class="report-grid">';
+ const html=visible.map(m=>{
+  const start=m.operationalStart?dateBR(m.operationalStart):"Não disponível";
+  const source=m.operationalStart?m.operationalSource:"Sem data de entrada em serviço ou aquisição";
+  const body=m.orders.map(o=>{
+   const rows=o.materials||[];
+   const materialContent=rows.length?
+    '<table><thead><tr><th>Reserva</th><th>Material</th><th>Descrição</th><th>Qtd.</th><th>UM</th></tr></thead><tbody>'+
+    rows.map(r=>'<tr><td>'+escapeHtml(r.reservation)+'</td><td>'+escapeHtml(r.material)+'</td><td>'+escapeHtml(r.description)+'</td><td>'+escapeHtml(r.qty)+'</td><td>'+escapeHtml(r.unit)+'</td></tr>').join('')+
+    '</tbody></table>':
+    '<p>Não há itens de reserva nesta exportação. Isso não demonstra ausência de material aplicado.</p>';
+   return '<tr class="'+(o.isChange?'report-change':'report-other')+'"><td><strong>'+escapeHtml(o.order)+'</strong></td>'+
+    '<td class="description">'+escapeHtml(o.description)+'</td>'+
+    '<td>'+dateBR(o.dateBase)+'</td><td>'+dateBR(o.faultEnd)+'</td><td>'+dateBR(o.entry)+'</td>'+
+    '<td>'+money(o.costReal)+'</td>'+
+    '<td><span class="report-pill'+(o.isChange?'':' review')+'">'+(o.isChange?'Troca candidata':'Revisar / outro serviço')+'</span></td>'+
+    '<td><details><summary>Materiais ('+o.materialCount+')</summary><div class="report-materials">'+materialContent+'</div></details></td></tr>';
+  }).join('');
+  const table='<div class="report-table-scroller"><table><thead><tr><th>Ordem SAP</th><th>Descrição da OS</th><th>Data-base</th><th>Fim da avaria</th><th>Entrada</th><th>Custo total da OS*</th><th>Classificação</th><th>Detalhes</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+  return '<section class="report-machine" data-asset="'+escapeHtml(m.id)+'" data-search="'+escapeHtml([m.tag,m.family,m.model,m.asset,m.equipment].join(' ').toLowerCase())+'">'+
+   '<header class="report-machine-header"><div><div class="report-type">'+escapeHtml(m.family)+' · '+escapeHtml(m.model)+'</div>'+
+   '<div class="report-tag">'+escapeHtml(m.tag||m.equipment||m.asset)+'</div>'+
+   '<div class="report-name">'+escapeHtml(m.asset)+'</div></div>'+
+   '<div class="report-sub">Início de operação aproximado: <strong>'+escapeHtml(start)+'</strong><div>'+escapeHtml(source)+'</div></div></header>'+
+   '<div class="report-kpis"><div class="report-kpi"><div class="value">'+(m.days==null?'—':days(m.days)+' dias')+'</div><div class="label">'+escapeHtml(m.daysKind)+'</div></div>'+
+   '<div class="report-kpi"><div class="value">'+m.changeOrders+'</div><div class="label">Ordens de substituição candidatas ('+m.trackedSides+' lado(s) observado(s))</div></div></div>'+
+   '<div class="report-note">Equipamento SAP: '+escapeHtml(m.equipment||'não localizado')+' · '+m.intervalCount+' intervalo(s) entre trocas consecutivas'+
+   (m.firstCount?' · '+m.firstCount+' primeira(s) troca(s) estimada(s)':'')+'</div>'+
+   (m.noChangeMessage?'<div class="report-nochange">'+escapeHtml(m.noChangeMessage)+'</div>':'')+
+   '<div class="report-section-head">Histórico de ordens e custos</div>'+
+   (m.orders.length?table:'<div class="report-empty">Sem ordens associadas na base analisada.</div>')+
+   '<footer class="report-footer">*Custo total registrado na ordem, não necessariamente custo exclusivo do material rodante. Material MB24 é reserva, não comprovação de consumo.</footer></section>';
+ }).join('');
+ return head+html+'</div></div>';
+}
+
+function generateStandaloneDashboard(data,{includeOther=false}={}){
+ const safeData=JSON.stringify(data).replace(/</g,"\\u003c").replace(/>/g,"\\u003e").replace(/&/g,"\\u0026");
+ const cards=renderDashboardCards(data,{includeOther});
+ const title=escapeHtml(data.title||"Ciclo de Vida — Material Rodante");
+ const css=DASHBOARD_STYLE;
+ // Apenas o relatório filtrado é incorporado. Nenhum envio de dados, API, CDN ou telemetria.
+ return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
+  '<meta name="referrer" content="no-referrer"><title>'+title+'</title><style>'+
+  'body{margin:0;background:#eff4f6;font:14px Segoe UI,Arial,sans-serif;color:#173042}.shell{max-width:1550px;margin:auto;padding:22px}'+
+  '.mast{background:#073d51;color:#fff;padding:26px 24px;border-bottom:5px solid #c3942c}.mast-inner{max-width:1550px;margin:auto}.mast h1{font-size:clamp(23px,3vw,32px);margin:4px 0 10px}.mast p{color:#c7dce3;margin:0}'+
+  '.controls{background:#fff;border:1px solid #d6e0e5;padding:14px;border-radius:14px;margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}'+
+  '.controls input[type=text]{padding:11px;border:1px solid #cbd9de;border-radius:8px;min-width:180px;flex:1}'+
+  '.controls button{background:#005471;border:0;border-radius:8px;color:white;padding:11px 15px;cursor:pointer;font-weight:750}'+
+  '.disclaimer{color:#627784;font-size:12px;margin:10px 0 20px}'+css+
+  '@media print{.mast{background:white!important;color:black!important}.mast p{color:black}.controls{display:none}.shell{padding:0}.report-app .report-machine{break-inside:avoid}body{background:white}}'+
+  '</style></head><body><header class="mast"><div class="mast-inner"><small>ENGENHARIA DE MANUTENÇÃO · ANÁLISE TÉCNICA</small><h1>'+title+'</h1>'+
+  '<p>Gerado em '+dateBR(toText(data.createdAt).slice(0,10))+' · '+data.machines.filter(x=>x.selected!==false).length+' equipamentos selecionados</p></div></header>'+
+  '<main class="shell"><div class="controls"><input type="text" id="find" placeholder="Buscar equipamento, TAG ou modelo">'+
+  '<label><input type="checkbox" id="other"'+(includeOther?' checked':'')+'> Mostrar inspeções, ajustes e demais OS</label>'+
+  '<button id="print" type="button">Imprimir / salvar PDF</button></div>'+
+  '<p class="disclaimer">'+escapeHtml(data.disclaimer)+'</p>'+
+  '<div id="report">'+cards+'</div></main>'+
+  '<script id="report-data" type="application/json">'+safeData+'</script>'+
+  '<script>(function(){var container=document.getElementById("report");var input=document.getElementById("find");'+
+  'function apply(){var q=input.value.toLowerCase().trim();container.querySelectorAll(".report-machine").forEach(function(el){el.style.display=!q||el.getAttribute("data-search").includes(q)?"":"none";});'+
+  'container.querySelector(".report-app").classList.toggle("report-show-other",document.getElementById("other").checked);}'+
+  'input.addEventListener("input",apply);document.getElementById("other").addEventListener("change",apply);'+
+  'document.getElementById("print").addEventListener("click",function(){window.print();});apply();})();</script>'+
+  '</body></html>';
+}
+
+return {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard};
+})();
+const {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard}=DashboardModule;
+
+const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null,lifecycle:null,dashboardExcluded:new Set(),dashboardCore:null,dashboardCacheKey:"",dataVersion:0};
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function log(v){$("log").textContent=String(new Date().toLocaleTimeString("pt-BR"))+"  "+v+"\n"+$("log").textContent.slice(0,5500);}
@@ -1063,7 +1276,11 @@ function metrics(id,items) {
 }
 function rebuild(){
  state.model=createModel(state.bases);
+ state.dataVersion++;
+ state.dashboardCore=null;
+ state.dashboardCacheKey="";
  renderAll();
+ if($("dashboard").classList.contains("active"))renderDashboard();
 }
 function csvRows(content){
  const d=content.replace(/^\ufeff/,"");
@@ -1277,6 +1494,84 @@ function renderLifecycle(){
 }
 function renderAll(){renderCatalog();renderMaterials();renderHistory();renderLifecycle();}
 
+
+function getDashboardBase(){
+ const status=[$("closingStatuses").value,$("cancelStatuses").value].join("|");
+ const cutoff=$("lifeAsOf").value||isoDate(new Date());
+ const cacheKey=state.dataVersion+"|"+cutoff+"|"+status+"|"+$("dashAllowWeak").checked;
+ if(cacheKey!==state.dashboardCacheKey||!state.dashboardCore){
+   state.dashboardCore=analyzeLifecycle(state.model,{
+     assetFilter:"",allowWeak:$("dashAllowWeak").checked,asOf:cutoff,
+     completionStatuses:$("closingStatuses").value.split(/[\s,;]+/).filter(Boolean),
+     cancellationStatuses:$("cancelStatuses").value.split(/[\s,;]+/).filter(Boolean)
+   });
+   state.dashboardCacheKey=cacheKey;
+ }
+ return state.dashboardCore;
+}
+function dashboardFilterMachines(){
+ const base=state.dashboardPayload?.machines||[];
+ const search=key($("dashSearch").value);
+ const family=$("dashFamily").value;
+ return base.filter(m=>(!family||m.family===family)&&
+   (!search||key(m.tag+" "+m.asset+" "+m.model+" "+m.equipment).includes(search)));
+}
+function renderDashboardSelections(){
+ const items=dashboardFilterMachines();
+ const all=state.dashboardPayload?.machines||[];
+ const selected=all.filter(m=>m.selected!==false);
+ $("dashSelectionCount").textContent=num(selected.length)+" de "+num(all.length)+" equipamentos incluídos. "+
+  num(items.length)+" equipamentos visíveis nos filtros.";
+ $("dashSelectionList").innerHTML=items.map(m=>
+  '<label class="dash-machine-choice"><input type="checkbox" data-dash-equipment="'+esc(m.id)+'"'+
+  (m.selected?' checked':'')+'><span><b>'+esc(m.tag||m.equipment||m.asset)+'</b>'+
+  esc(m.model)+' · '+esc(m.family)+'<small>'+esc(m.asset)+'</small>'+
+  '<small>'+m.changeOrders+' OS candidata(s) de substituição</small></span></label>'
+ ).join("")||'<p class="muted">Nenhum equipamento corresponde à busca.</p>';
+}
+function renderDashboard(){
+ const base=getDashboardBase();
+ const payload=buildDashboardData(base,{excluded:[...state.dashboardExcluded]});
+ state.dashboardPayload=payload;
+ const families=[...new Set(payload.machines.map(m=>m.family))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+ const previous=$("dashFamily").value;
+ $("dashFamily").innerHTML='<option value="">Todas as famílias</option>'+families.map(f=>
+  '<option value="'+esc(f)+'">'+esc(f)+'</option>').join("");
+ $("dashFamily").value=families.includes(previous)?previous:"";
+ renderDashboardSelections();
+ const selected=payload.machines.filter(m=>m.selected!==false);
+ const orderSet=new Set();
+ const daysSelected=[];
+ for(const m of selected){
+   for(const o of m.orders)if(o.isChange)orderSet.add(m.id+"|"+o.order);
+   if(m.days!==null&&m.days!==undefined)daysSelected.push(m.days);
+ }
+ metrics("dashStats",[
+  [num(selected.length),"Equipamentos selecionados"],
+  [num(orderSet.size),"Ordens de substituição candidatas"],
+  [num(selected.filter(m=>m.intervalCount>0).length),"Máquinas com intervalos sucessivos"],
+  [num(selected.filter(m=>m.firstCount>0).length),"Máquinas com primeira troca estimada"],
+  [num(selected.filter(m=>m.orders.some(o=>o.materialCount>0)).length),"Máquinas com reservas na base"]
+ ]);
+ $("dashPreviewCount").textContent=num(selected.length)+" máquina(s) no relatório";
+ $("dashPreview").innerHTML='<style>'+DASHBOARD_STYLE+'</style>'+
+  renderDashboardCards(payload,{includeOther:$("dashShowOther").checked});
+ if(!selected.length)$("dashPreview").innerHTML='<p class="notice">Selecione pelo menos um equipamento para gerar o dashboard.</p>';
+}
+function setDashboardVisible(checked){
+ const ids=dashboardFilterMachines().map(m=>m.id);
+ for(const id of ids)if(checked)state.dashboardExcluded.delete(id);
+  else state.dashboardExcluded.add(id);
+ renderDashboard();
+}
+function exportDashboardHTML(){
+ const payload=state.dashboardPayload||buildDashboardData(getDashboardBase());
+ const selected={...payload,machines:payload.machines.filter(m=>m.selected!==false)};
+ if(!selected.machines.length)return log("Selecione pelo menos um equipamento antes de exportar.");
+ const html=generateStandaloneDashboard(selected,{includeOther:$("dashShowOther").checked});
+ localDownload("dashboard_rodante_"+new Date().toISOString().slice(0,10)+".html",html,"text/html;charset=utf-8");
+ log("Dashboard privado exportado com "+selected.machines.length+" equipamentos. Guardar em ambiente autorizado.");
+}
 function localDownload(name,content,mime){
  const blob=content instanceof Blob?content:new Blob([content],{type:mime});
  const url=URL.createObjectURL(blob);
@@ -1285,13 +1580,17 @@ function localDownload(name,content,mime){
  setTimeout(()=>URL.revokeObjectURL(url),5000);
 }
 function sessionSettings(){
- return {lifeAsOf:$("lifeAsOf").value,lifeAllowWeak:$("lifeAllowWeak").checked,
+ return {dashboardExcluded:[...state.dashboardExcluded],dashboardShowOther:$("dashShowOther").checked,dashboardAllowWeak:$("dashAllowWeak").checked,
+  lifeAsOf:$("lifeAsOf").value,lifeAllowWeak:$("lifeAllowWeak").checked,
    lifeAssetFilter:$("lifeAssetFilter").value,
    allowWeak:$("allowWeak").checked,allowProxy:$("allowProxy").checked,
    componentFilter:$("componentFilter").value,assetFilter:$("assetFilter").value,
    closingStatuses:$("closingStatuses").value,cancelStatuses:$("cancelStatuses").value};
 }
 function restoreSettings(s){
+ state.dashboardExcluded=new Set(Array.isArray(s.dashboardExcluded)?s.dashboardExcluded.map(String):[]);
+ if(s.dashboardShowOther!=null)$("dashShowOther").checked=Boolean(s.dashboardShowOther);
+ if(s.dashboardAllowWeak!=null)$("dashAllowWeak").checked=Boolean(s.dashboardAllowWeak);
  for(const id of ["lifeAsOf","lifeAssetFilter","componentFilter","assetFilter","closingStatuses","cancelStatuses"]){
   if(s[id]!=null)$(id).value=s[id];
  }
@@ -1382,6 +1681,7 @@ function saveLifeReport(){
 document.querySelectorAll("[data-tab]").forEach(btn=>btn.addEventListener("click",()=>{
  document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b===btn));
  document.querySelectorAll(".view").forEach(s=>s.classList.toggle("active",s.id===btn.dataset.tab));
+ if(btn.dataset.tab==="dashboard")renderDashboard();
 }));
 $("btnCatalog").onclick=()=>importFiles("filesCatalog",$("roleCatalog").value);
 $("btnMaterials").onclick=()=>importFiles("filesMaterials","reservations");
@@ -1418,6 +1718,20 @@ $("exportRodante").onclick=()=>{
   }))}
  ]);
 };
+$("dashExportHtml").onclick=exportDashboardHTML;
+$("dashSearch").oninput=renderDashboardSelections;
+$("dashFamily").onchange=renderDashboardSelections;
+$("dashShowOther").onchange=renderDashboard;
+$("dashAllowWeak").onchange=renderDashboard;
+$("dashIncludeVisible").onclick=()=>setDashboardVisible(true);
+$("dashExcludeVisible").onclick=()=>setDashboardVisible(false);
+$("dashSelectionList").addEventListener("change",event=>{
+ const el=event.target;
+ if(!el.matches("[data-dash-equipment]"))return;
+ const id=el.getAttribute("data-dash-equipment");
+ if(el.checked)state.dashboardExcluded.delete(id);else state.dashboardExcluded.add(id);
+ renderDashboard();
+});
 $("exportBundle").onclick=makeEnrichedPackage;
 $("exportSession").onclick=saveSessionJSON;
 $("exportSessionGzip").onclick=saveCompressedSessionJSON;
@@ -1430,7 +1744,7 @@ $("lifeAsOf").onchange=renderLifecycle;
 $("lifeAssetFilter").oninput=renderLifecycle;
 $("resetAll").onclick=()=>{
  if(!confirm("Apagar as bases carregadas nesta aba? Exporte um backup JSON antes de limpar."))return;
- state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];
+ state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];state.dashboardExcluded.clear();
  log("Sessão de dados limpa; backup não é gerado automaticamente.");rebuild();
 };
 rebuild();
