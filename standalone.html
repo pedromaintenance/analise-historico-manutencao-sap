@@ -593,7 +593,8 @@ function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancellationS
   else if(adjustment)operationClass="ajuste / reposicionamento";
   else if(inspection)operationClass="inspeção / diagnóstico";
   else if(installation)operationClass="montagem / instalação";
-  const reservationRows=(order.reserves||[]);
+  const reservationRows=(order.reserves||[]).filter(x=>
+    !["X","TRUE","SIM"].includes(key(x.deletedFlag)));
   const fullMaterial=reservationRows.some(x=>
     /ESTEIRA\s+COMPLETA|^ESTEIRA\s+(?:\d|CAT|D9|D6|GRUPO)|^LAGARTA\s+\w+|GRUPO\s+(?:DE\s+)?ESTEIRA|CONJ(?:UNTO)?\s+(?:DE\s+)?ELOS\s+CORRENTE|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+COMPLETA/.test(key(x.description)));
   const reservationHasParts=reservationRows.length>0&&!fullMaterial;
@@ -799,7 +800,11 @@ function enrichRows(model,role) {
       "Enriq. Atividade":r.activity,
       "Enriq. Prioridade":r.priorityText||r.priority,
       "Enriq. Criado por":r.createdBy,
-      "Enriq. Notificador":r.notifier||""
+      "Enriq. Notificador":r.notifier||"",
+      ...(role==="equipment"?{
+        "Data de entrada em serviço":r.serviceStart||"",
+        "Enriq. Data de aquisição":r.acquisitionDate||""
+      }:{})
     };
   });
 }
