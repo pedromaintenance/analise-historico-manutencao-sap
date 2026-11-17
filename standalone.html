@@ -82,6 +82,7 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
   <div class="toolbar">
     <button id="exportBundle" class="primary">Exportar pacote Excel completo</button>
     <button id="exportSession">Exportar sessão JSON</button>
+    <button id="exportSessionGzip">Exportar JSON compacto (.gz)</button>
     <button id="exportLifeQuick">Exportar ciclo de vida</button>
   </div>
   <div class="grid cols2">
@@ -93,7 +94,7 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
     </div>
     <div>
      <h3>Restaurar JSON de sessão</h3>
-     <div class="fileline"><input type="file" id="fileSession" accept=".json,application/json">
+     <div class="fileline"><input type="file" id="fileSession" accept=".json,.json.gz,.gz,application/json,application/gzip">
        <span class="pill">Restabelece bases e filtros</span>
        <button id="importSession">Restaurar sessão</button></div>
     </div>
@@ -324,7 +325,7 @@ function normalizeRows(role, rows) {
     const m = lookup(source);
     const common = {
       sourceIndex: i + 2, role, raw: source,
-      equipment: pick(m,"equipment"), fl: pick(m,"fl"),
+      equipment: pick(m,"equipment"), fl: pick(m,"fl"),sortKey:pick(m,"sortKey"),
       object: pick(m,"object"), flLabel: pick(m,"flLabel"),
       sys: pick(m,"sys"), usr: pick(m,"usr"),
       createdBy: pick(m,"createdBy"), activity: pick(m,"activity"),
@@ -463,7 +464,7 @@ function createModel(bases) {
     const n=linkedNotes[0]||null;
     const eq=o.equipment||(n?.equipment||"");
     const fl=o.fl||(n?.fl||"");
-    const identity=resolveAsset(eq,fl,o.object||(n?.object||""),byEquip,byFL,byTag);
+    const identity=resolveAsset(eq,fl,o.description||(n?.description||o.object||(n?.object||"")),byEquip,byFL,byTag,o.sortKey||(n?.sortKey||""));
     orders.push({...o, equipment:eq, fl, identity, notes:linkedNotes, reserves:linkedMaterials,
       description:o.description||(n?.description||""), notifier:n?.notifier||"",
       materialCount:linkedMaterials.length,
@@ -477,12 +478,31 @@ function createModel(bases) {
     orphans:{notes:norm.notes.filter(n=>!n.order).length,
       reservations:norm.reservations.filter(r=>r.order&&!byOrder.has(r.order)).length}};
 }
-function resolveAsset(equipment,fl,desc,byEquip,byFL,byTag) {
+function resolveAsset(equipment,fl,desc,byEquip,byFL,byTag,directSortKey="") {
   const eq=text(equipment), loc=text(fl);
   if (eq) {
     const e=byEquip.get(eq);
     return {id:"EQ:"+eq,level:"equipment",label:e?.object||desc||eq,
       tag:machineTag(e?.object||desc),method:e?"cadastro de equipamento":"identificador da ordem",confidence:"alta"};
+  }
+  const tagFromSource=machineTag(directSortKey);
+  if(tagFromSource){
+    const matches=byTag.get(tagFromSource)||[];
+    if(matches.length===1)return {
+      id:"EQ:"+matches[0].id,level:"equipment",label:matches[0].object,
+      tag:tagFromSource,method:"Campo de ordenação presente na ordem / nota",
+      confidence:"média"
+    };
+    // Tags inexistentes ou ambíguas não são atribuídas forçadamente.
+  }
+  const tagFromDescription=machineTag(desc);
+  if(tagFromDescription){
+    const matches=byTag.get(tagFromDescription)||[];
+    if(matches.length===1)return {
+      id:"EQ:"+matches[0].id,level:"equipment",label:matches[0].object,
+      tag:tagFromDescription,method:"TAG citada no texto da OS (validar)",
+      confidence:"baixa"
+    };
   }
   // Sem codificar a hierarquia de nenhuma empresa. O usuário fornece o
   // vínculo pelo campo de ordenação dos locais técnicos e pelo mestre de equipamentos.
@@ -786,7 +806,7 @@ function enrichRows(model,role) {
   return items.map(r=>{
     const eq=model.byEquip.get(r.equipment);
     const fl=model.byFL.get(r.fl);
-    const identity=resolveAsset(r.equipment,r.fl,r.object,model.byEquip,model.byFL,model.byTag);
+    const identity=resolveAsset(r.equipment,r.fl,r.description||r.object,model.byEquip,model.byFL,model.byTag,r.sortKey);
     return {...r.raw,
       "Enriq. Equipamento":r.equipment,
       "Enriq. Denominação equipamento":eq?.object||r.object||"",
@@ -1258,7 +1278,7 @@ function renderLifecycle(){
 function renderAll(){renderCatalog();renderMaterials();renderHistory();renderLifecycle();}
 
 function localDownload(name,content,mime){
- const blob=new Blob([content],{type:mime});
+ const blob=content instanceof Blob?content:new Blob([content],{type:mime});
  const url=URL.createObjectURL(blob);
  const a=document.createElement("a");a.href=url;a.download=name;
  document.body.appendChild(a);a.click();a.remove();
@@ -1285,11 +1305,26 @@ function saveSessionJSON(){
    JSON.stringify(data),"application/json;charset=utf-8");
  log("Backup local JSON gerado: "+num(rowCount)+" linhas, incluindo dados corporativos. NÃO publicar no GitHub.");
 }
+async function saveCompressedSessionJSON(){
+ const rows=ROLES.reduce((sum,role)=>sum+state.bases[role].length,0);
+ if(!rows)return log("Sem dados para salvar.");
+ if(typeof CompressionStream==="undefined"){
+  log("Seu navegador não suporta compactação nativa: exporte o JSON normal.");return;
+ }
+ const data=serializeSession(state.bases,state.loaded,sessionSettings());
+ const blob=new Blob([JSON.stringify(data)],{type:"application/json"});
+ const compressed=await new Response(blob.stream().pipeThrough(new CompressionStream("gzip"))).blob();
+ localDownload("sap_sessao_"+new Date().toISOString().slice(0,10)+".json.gz",compressed,"application/gzip");
+ log("Backup privado compactado criado: "+num(rows)+" linhas. Não publicar online.");
+}
 async function importSessionJSON(){
  const file=$("fileSession").files[0];
  if(!file)return log("Selecione o JSON salvo anteriormente.");
  try{
-   const parsed=restoreSession(JSON.parse(await file.text()));
+   const source=/\.gz$/i.test(file.name)
+     ?await new Response(file.stream().pipeThrough(new DecompressionStream("gzip"))).text()
+     :await file.text();
+   const parsed=restoreSession(JSON.parse(source));
    state.bases=parsed.bases;state.loaded=parsed.loaded;
    restoreSettings(parsed.settings);rebuild();
    log("Sessão completa restaurada de "+file.name+". Nenhum upload ao servidor.");
@@ -1385,6 +1420,7 @@ $("exportRodante").onclick=()=>{
 };
 $("exportBundle").onclick=makeEnrichedPackage;
 $("exportSession").onclick=saveSessionJSON;
+$("exportSessionGzip").onclick=saveCompressedSessionJSON;
 $("importBundle").onclick=importEnrichedPackage;
 $("importSession").onclick=importSessionJSON;
 $("exportLifecycle").onclick=saveLifeReport;
