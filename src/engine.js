@@ -36,7 +36,8 @@ const fields = {
   createdDate: ["Data de entrada", "Criado em", "Data da nota"],
   model: ["Denominação do tipo", "Modelo"],
   manufacturer: ["Fabricante do imobilizado", "Fabricante"],
-  inventory: ["Nº inventário", "Campo de ordenação", "TAG conciliado", "TAG descrição"],
+  inventory: ["Nº inventário", "TAG conciliado", "TAG descrição"],
+  sortKey: ["Campo de ordenação", "TAG / Campo ordenação", "TAG conciliado"],
   reservation: ["Nº reserva", "Número reserva"],
   material: ["Material"],
   materialText: ["Texto breve material", "Descrição material"],
@@ -68,12 +69,12 @@ export function detectRole(headers) {
   if (has("Nº reserva") && has("Material")) return "reservations";
   if (has("Tipo de ordem") && has("Ordem")) return "orders";
   if (has("Tipo de nota") && has("Nota")) return "notes";
-  if (has("Equipamento") && has("Denominação do objeto técnico") && (has("Fabricante do imobilizado") || has("Nº inventário"))) return "equipment";
-  if (has("Local de instalação") && (has("Tipo de objeto") || has("Ctg.loc.instalação"))) return "locations";
+  if ((has("Equipamento") || has("Equipamento SAP")) && (has("Denominação do objeto técnico") || has("Descrição do objeto técnico")) && (has("Fabricante do imobilizado") || has("Nº inventário") || has("Status SAP"))) return "equipment";
+  if (has("Local de instalação") && (has("Tipo de objeto") || has("Ctg.loc.instalação") || has("Categoria do local"))) return "locations";
   if (has("Ordem") && has("Texto breve")) return "orders";
   if (has("Nota") && has("Notificador")) return "notes";
-  if (has("Equipamento") && has("Denominação do objeto técnico")) return "equipment";
-  if (has("Local de instalação") && has("Denominação do loc.instalação")) return "locations";
+  if ((has("Equipamento") || has("Equipamento SAP")) && (has("Denominação do objeto técnico") || has("Descrição do objeto técnico"))) return "equipment";
+  if (has("Local de instalação") && (has("Denominação do loc.instalação") || has("Denominação do local"))) return "locations";
   return null;
 }
 export function normalizeRows(role, rows) {
@@ -104,7 +105,7 @@ export function normalizeRows(role, rows) {
       manufacturer: pick(m,"manufacturer"), inventory: pick(m,"inventory"),
       category: pick(m,"category") };
     if (role === "locations") return {...common,
-      id: pick(m,"fl"), type: pick(m,"typeObject"), category: pick(m,"category") };
+      id: pick(m,"fl"), type: pick(m,"typeObject"), category: pick(m,"category"),sortKey:pick(m,"sortKey") };
     return {...common, id: pick(m,"reservation"), order: pick(m,"id"),
       material: pick(m,"material"), description: pick(m,"materialText"),
       qty: pick(m,"qty"), qtyPosted: pick(m,"qtyPosted"), qtyDiff: pick(m,"qtyDiff"),
@@ -134,12 +135,6 @@ export function isoDate(v) { const d=asDate(v); return d?d.toISOString().slice(0
 export function machineTag(desc) {
   const m = text(desc).match(/\b\d{3}[- ]\d{3}\b/);
   return m ? m[0].replace(" ","-") : "";
-}
-function flTag(fl) {
-  const m = text(fl).toUpperCase().match(/(?:^|-)(DRT|DRS|SHO|EXC|DZT)(\d{4})(?:-|$)/);
-  if (!m) return "";
-  const prefix = {DRT:"010",DRS:"010",SHO:"020",EXC:"021",DZT:"050"}[m[1]];
-  const n = Number(m[2]); return prefix + "-" + String(n).padStart(3,"0");
 }
 export function createModel(bases) {
   const norm = {};
@@ -209,18 +204,35 @@ export function resolveAsset(equipment,fl,desc,byEquip,byFL,byTag) {
     return {id:"EQ:"+eq,level:"equipment",label:e?.object||desc||eq,
       tag:machineTag(e?.object||desc),method:e?"cadastro de equipamento":"identificador da ordem",confidence:"alta"};
   }
-  const inferredTag=flTag(loc);
-  const matches=inferredTag?(byTag.get(inferredTag)||[]):[];
-  if (matches.length===1) {
-    return {id:"EQ:"+matches[0].id,level:"equipment",label:matches[0].object,
-      tag:inferredTag,method:"inferência por hierarquia do local",confidence:"média"};
-  }
+  // Sem codificar a hierarquia de nenhuma empresa. O usuário fornece o
+  // vínculo pelo campo de ordenação dos locais técnicos e pelo mestre de equipamentos.
   if (loc) {
-    const machineNode=loc.match(/^(.+?-(?:DRT|DRS|SHO|EXC|DZT)\d{4})(?:-|$)/i);
-    const root=machineNode?machineNode[1]:loc;
-    return {id:"FL:"+root,level:"functional_location",
-      label:byFL.get(root)?.flLabel||byFL.get(loc)?.flLabel||root,
-      tag:inferredTag,method:"local de instalação (não conciliado)",confidence:"baixa"};
+    let current=loc,tag="",matchedLocation="";
+    while(current) {
+      const record=byFL.get(current);
+      if(record) {
+        const t=machineTag(record.sortKey);
+        if(t){tag=t;matchedLocation=current;break;}
+      }
+      const dash=current.lastIndexOf("-");
+      if(dash<0)break;
+      current=current.slice(0,dash);
+    }
+    const matches=tag?(byTag.get(tag)||[]):[];
+    if(matches.length===1) {
+      return {id:"EQ:"+matches[0].id,level:"equipment",label:matches[0].object,
+        tag,method:"campo de ordenação do local técnico + TAG do equipamento",confidence:"média"};
+    }
+    // Quando existe TAG do local sem equipamento único, não inventar correspondência.
+    if(tag) {
+      return {id:"FLTAG:"+tag,level:"functional_location",
+        label:byFL.get(matchedLocation)?.flLabel||"Local técnico "+tag,tag,
+        method:matches.length?"TAG ambígua no mestre de equipamentos":"TAG sem equipamento correspondente",
+        confidence:"baixa"};
+    }
+    return {id:"FL:"+loc,level:"functional_location",
+      label:byFL.get(loc)?.flLabel||loc,tag:"",
+      method:"local de instalação (sem conciliação)",confidence:"baixa"};
   }
   return {id:"UNRESOLVED",level:"unresolved",label:"Objeto técnico não identificado",
     tag:"",method:"ausente",confidence:"baixa"};
@@ -232,7 +244,7 @@ const dictionaryFields=[
   ["Criado por","createdBy"],["Técnico / Notificador","notifier"],
   ["Tipo de ordem / nota","type"],["Centro de trabalho","workCenter"],
   ["Grupo planejador","planner"],["Centro de custo","costCenter"],
-  ["Modelo","model"],["Fabricante","manufacturer"],["Categoria","category"],
+  ["Modelo","model"],["Fabricante","manufacturer"],["Categoria","category"],["Campo de ordenação","sortKey"],
   ["Código de catálogo","code"],["Material","material","description"]
 ];
 export function buildDictionaries(norm,byEquip,byFL) {
