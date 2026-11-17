@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Análise de Histórico de Manutenção SAP</title>
+<style>
+:root{--bg:#f2f5f7;--ink:#182d37;--sub:#57707c;--blue:#005471;--gold:#c3942c;--line:#d4dfe3;--panel:#fff;--green:#0d775d;--red:#b45140;--radius:15px;--shadow:0 7px 26px #143f4e0e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Segoe UI",Arial,sans-serif}
+h1,h2,h3,p{margin-top:0}h1{font-size:clamp(22px,2.5vw,31px);line-height:1.12}h2{font-size:22px}h3{font-size:15px}
+small,.muted{color:var(--sub)}button,input,select{font:inherit}button{cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:10px 14px;color:var(--ink);background:white;font-weight:650}
+button:hover{border-color:var(--blue)}button.primary{background:var(--blue);border-color:var(--blue);color:#fff}button.secondary{background:#edf4f6}
+button:disabled{opacity:.42;cursor:not-allowed}input,select{border:1px solid var(--line);border-radius:9px;padding:10px;min-width:0;background:#fff;color:var(--ink)}
+input[type=file]{max-width:100%}input[type=checkbox]{accent-color:var(--blue);width:17px;height:17px}
+header{background:linear-gradient(110deg,#073d51,#005471);color:white;border-bottom:5px solid var(--gold)}
+.container{max-width:1510px;margin:0 auto;padding:22px}
+.top{display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.eyebrow{text-transform:uppercase;letter-spacing:.15em;color:#f0c875;font-size:11px;font-weight:800}
+header p{color:#d3e7ed;margin:8px 0 0}
+.privacy{font-size:12px;border:1px solid #7ba9b5;padding:8px 12px;border-radius:999px;background:#16516a;white-space:normal}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.tabs button{color:#d8eaf0;background:#11536b;border-color:#387389;border-radius:12px 12px 0 0}
+.tabs button.active{background:var(--bg);color:var(--blue);border-color:var(--bg)}
+main{padding-top:22px}.view{display:none}.view.active{display:block}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);margin-bottom:16px}
+.grid{display:grid;gap:14px}.cols2{grid-template-columns:repeat(2,minmax(0,1fr))}.cols3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:17px}
+.stat{padding:15px;background:white;border:1px solid var(--line);border-radius:12px}.stat b{display:block;font-size:24px;color:var(--blue);line-height:1.1}.stat span{display:block;margin-top:5px;font-size:12px;color:var(--sub)}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:12px 0}.toolbar>input,.toolbar>select{flex:1;min-width:180px;max-width:360px}
+.notice{padding:12px 15px;border-left:4px solid var(--gold);background:#faf6ed;border-radius:8px;margin:12px 0;color:#5e4e2b}
+.warning{border-left-color:var(--red);background:#fff0ee;color:#7a3932}
+.good{border-left-color:var(--green);background:#eef8f3;color:#1c614f}
+table{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}
+th,td{border-bottom:1px solid #e4e9ec;padding:10px 11px;text-align:left;vertical-align:top;max-width:390px;overflow:hidden;text-overflow:ellipsis}
+th{position:sticky;top:0;background:#eaf1f4;color:#254653;z-index:1}
+tr:hover td{background:#f7fbfc}.tablewrap{overflow:auto;max-height:480px;border:1px solid var(--line);border-radius:10px}
+code{font-family:Consolas,monospace;background:#eef4f5;padding:2px 4px;border-radius:4px}
+.tag{display:inline-block;background:#edf4f7;border-radius:99px;color:#315763;padding:2px 8px;font-weight:700;font-size:11px}
+.tag.ok{color:#0d775d;background:#e8f7ef}.tag.warn{color:#966716;background:#fcf1d6}.tag.bad{color:#ad3f30;background:#fcebe8}
+.bar{height:12px;background:#e6edef;border-radius:20px;overflow:hidden;min-width:80px}.bar>i{display:block;height:100%;background:var(--blue)}
+.split{display:flex;gap:20px;justify-content:space-between;flex-wrap:wrap;align-items:center}
+.headline{font-weight:800;color:var(--blue);font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+.result{min-height:72px}.help{line-height:1.65;color:var(--sub)}
+.fileline{display:grid;grid-template-columns:1.4fr 1fr auto;gap:10px;align-items:center}
+#log{font:12px/1.5 Consolas,monospace;max-height:140px;overflow:auto;white-space:pre-wrap;background:#f5f8f9;padding:12px;border-radius:8px}
+.pill{font-size:12px;border:1px solid var(--line);padding:4px 9px;border-radius:99px;color:var(--sub)}
+footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
+@media(max-width:1000px){.summary{grid-template-columns:repeat(3,1fr)}.cols2,.cols3{grid-template-columns:1fr}.fileline{grid-template-columns:1fr}}
+@media(max-width:580px){.summary{grid-template-columns:repeat(2,1fr)}.container{padding:14px}.panel{padding:14px}.tabs{gap:3px}.tabs button{padding:10px 8px;font-size:12px}.stat b{font-size:20px}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+</head>
+<body>
+<header><div class="container">
+  <div class="top"><div><div class="eyebrow">Engenharia de manutenção · ferramenta local</div>
+    <h1>Histórico de Manutenção SAP</h1>
+    <p>Enriquecimento de cadastros, materiais reservados e análise de intervenções por objeto técnico.</p></div>
+    <span class="privacy">Arquivos processados no seu navegador · Sem servidor de upload</span></div>
+  <nav class="tabs" aria-label="Módulos">
+    <button class="active" data-tab="cadastros">01 · Cadastros técnicos</button>
+    <button data-tab="materiais">02 · Materiais & MB24</button>
+    <button data-tab="historico">03 · Ordens & rodante</button>
+  </nav>
+</div></header>
+<main class="container">
+<section id="cadastros" class="view active">
+ <div class="panel">
+  <div class="split"><div><h2>01 · Enriquecimento dos dados mestres</h2>
+   <p class="help">Importe qualquer combinação de IW39, IW29, equipamentos e locais de instalação. O sistema detecta os cabeçalhos, concilia as chaves técnicas e cria dicionários reutilizáveis para exportação.</p></div>
+  </div>
+  <div class="fileline"><input id="filesCatalog" type="file" multiple accept=".xlsx,.xls,.csv,.tsv">
+    <select id="roleCatalog" aria-label="Tipo de base"><option value="auto">Detectar automaticamente pelo cabeçalho</option>
+     <option value="equipment">Equipamentos</option><option value="locations">Locais de instalação</option>
+     <option value="orders">IW39 / Ordens</option><option value="notes">IW29 / Notas</option></select>
+    <button class="primary" id="btnCatalog">Importar planilhas</button></div>
+ </div>
+ <div class="summary" id="datasetMetrics"></div>
+ <div class="panel">
+  <div class="split"><div><h3>Dicionário técnico consolidado</h3><p class="muted">Identificadores, denominações, status, prioridades, pessoas, atividades e outros domínios observados nas exportações.</p></div>
+   <button id="exportDictionary">Exportar dicionário</button></div>
+  <div class="toolbar"><input id="searchDictionary" placeholder="Buscar código, descrição, campo ou origem">
+   <select id="filterDictionary"><option value="">Todos os campos</option></select>
+   <select id="enrichRole"><option value="orders">Enriquecer ordens</option><option value="notes">Enriquecer notas</option><option value="equipment">Enriquecer equipamentos</option><option value="locations">Enriquecer locais</option></select>
+   <button id="exportEnriched">Exportar base enriquecida</button></div>
+  <p id="dictCount" class="muted"></p><div class="tablewrap"><table id="dictionaryTable"></table></div>
+ </div>
+ <div class="grid cols2"><div class="panel"><h3>Regras de conciliação</h3>
+   <p class="help">1. Preferir o identificador de equipamento existente na ordem. 2. Resolver a denominação a partir do mestre de equipamentos. 3. Se não houver equipamento, tentar vínculo inequívoco com a hierarquia do local. 4. Se não houver correspondência confiável, preservar o local funcional como objeto técnico independente.</p>
+   <div class="notice">Locais genéricos de oficina não identificam, por si só, uma máquina específica. A inferência por TAG é sinalizada como confiança média e deve ser validada.</div></div>
+ <div class="panel"><h3>Arquivos importados</h3><div id="loadedFiles" class="result muted">Nenhum arquivo carregado.</div><div class="toolbar"><button id="resetAll">Limpar toda a sessão</button></div><div id="log" aria-live="polite">Aguardando importação.</div></div></div>
+</section>
+<section id="materiais" class="view">
+ <div class="panel"><h2>02 · Materiais e reservas</h2>
+  <p class="help">A base MB24 permite mapear os materiais demandados, as reservas e as ordens relacionadas, sem exigir o cadastro completo de materiais. Isso identifica <strong>necessidade e vínculo</strong>, não confirma saída física ou aplicação.</p>
+  <div class="fileline"><input id="filesMaterials" type="file" multiple accept=".xlsx,.xls,.csv,.tsv">
+   <span class="pill">Detecção de MB24 pela presença de Reserva + Material</span>
+   <button class="primary" id="btnMaterials">Importar MB24</button></div>
+ </div>
+ <div class="summary" id="materialMetrics"></div>
+ <div class="panel"><div class="split"><div><h3>Catálogo observado na MB24</h3><p class="muted">Códigos, textos e associação com ordens, somente do arquivo fornecido.</p></div>
+   <button id="exportMaterials">Exportar materiais enriquecidos</button></div>
+  <div class="toolbar"><input id="searchMaterials" placeholder="Buscar código, material ou descrição"></div>
+  <div class="tablewrap"><table id="materialsTable"></table></div>
+  <div class="notice">A quantidade necessária e os registros da reserva não devem ser confundidos com movimentações confirmadas (MB51 / documentos de material). A análise de vida útil não considera uma simples reserva como prova de troca.</div>
+ </div>
+</section>
+<section id="historico" class="view">
+ <div class="panel"><h2>03 · Histórico de ordens e primeiro relatório especial</h2>
+   <p class="help">Consulte as ordens por equipamento ou local, agregue notas e reservas e identifique intervenções de material rodante. A classificação é auditável e preserva serviços que apenas mencionam esteira, inspeções e trocas planejadas.</p>
+   <div class="fileline"><input id="filesHistory" type="file" multiple accept=".xlsx,.xls,.csv,.tsv">
+    <span class="pill">IW39 / IW29 aceitas individualmente</span>
+    <button class="primary" id="btnHistory">Importar histórico</button></div>
+ </div>
+ <div class="summary" id="historyMetrics"></div>
+ <div class="panel">
+  <div class="split"><div><div class="headline">Relatório especial 01</div>
+    <h2>Intervalo entre trocas de material rodante</h2></div>
+   <button id="exportRodante">Exportar relatório e evidências</button></div>
+  <div class="toolbar">
+   <select id="componentFilter" aria-label="Componente">
+    <option value="esteira completa">Esteira completa / corrente de esteira</option>
+    <option value="roletes">Roletes</option><option value="roda guia">Roda guia</option>
+    <option value="roda motriz / segmento">Roda motriz / segmento</option>
+    <option value="sapatas / fixações">Sapatas / fixações</option>
+    <option value="tensionamento">Tensionamento</option>
+    <option value="pinos e buchas">Pinos / buchas</option><option value="proteções">Proteções</option>
+    <option value="material rodante geral">Rodante geral</option><option value="todos">Todos os componentes</option>
+   </select>
+   <input id="assetFilter" placeholder="Filtrar máquina, TAG ou denominação">
+   <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="allowProxy"> Incluir estimativas com data-base</label>
+  </div>
+  <div id="rodanteWarning" class="notice"></div>
+  <div class="summary" id="rodanteMetrics"></div>
+  <h3>Comparação entre objetos técnicos</h3>
+  <div id="lifeChart" style="margin:10px 0 18px"></div>
+  <h3>Vida entre eventos por objeto, componente e lado</h3>
+  <div class="tablewrap"><table id="intervalTable"></table></div>
+  <p id="intervalCount" class="muted"></p>
+  <h3 style="margin-top:18px">Eventos considerados e rastreabilidade</h3>
+  <div class="tablewrap"><table id="eventsTable"></table></div>
+  <h3 style="margin-top:18px">Ordens candidatas à classificação</h3>
+  <div class="tablewrap"><table id="candidatesTable"></table></div>
+ </div>
+ <div class="panel"><h3>Consulta geral de ordens enriquecidas</h3>
+  <div class="toolbar"><input id="searchOrders" placeholder="Buscar ordem, descrição, equipamento, local ou material"></div>
+  <div class="tablewrap"><table id="ordersTable"></table></div>
+  <p class="muted">A tabela apresenta as primeiras 120 linhas correspondentes para manter a interface responsiva. Exportações completas são geradas diretamente na sessão local.</p>
+ </div>
+ <div class="grid cols2"><div class="panel"><h3>Definição correta de indicadores</h3>
+  <p class="help"><strong>Intervalo calendário entre trocas:</strong> diferença de dias entre duas substituições comparáveis do mesmo item, lado e ativo. <strong>Vida operacional em horas:</strong> diferença entre horímetros registrados nas intervenções, não estimável apenas com IW39/MB24 sem histórico de medidores.</p></div>
+  <div class="panel"><h3>Limitações explícitas</h3><p class="help">Data-base, abertura da ordem, fechamento e reserva são marcos diferentes. Ordens sem registro de execução permanecem como candidatas; componentes individuais não podem ser misturados com conjuntos completos; alterações de equipamento dentro de local funcional exigem histórico de instalação para conciliação definitiva.</p></div></div>
+</section>
+</main>
+<footer>Projeto aberto, sem dados de empresa embarcados · Processamento em memória, sem cookies, analytics ou armazenamento persistente · Uso técnico sujeito à validação do histórico SAP.</footer>
+<script>
+/* Motor genérico de análise SAP PM.
+ * Não contém cadastros, valores de operação, nomes ou identificadores reais.
+ * Todas as funções são puras: as exportações ficam em memória no navegador.
+ */
+const VERSION = "0.1.0";
+const ROLES = ["equipment", "locations", "orders", "notes", "reservations"];
+
+function text(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+function key(value) {
+  return text(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+const fields = {
+  id: ["Ordem", "Nº ordem", "Numero da ordem", "Nº de ordem"],
+  note: ["Nota", "Notificação", "Notificacao"],
+  equipment: ["Equipamento", "Equipamento SAP", "Número equipamento"],
+  fl: ["Local de instalação", "Local instalacao", "Local funcional", "Local de instalacao"],
+  object: ["Denominação do objeto técnico", "Descrição do objeto técnico", "Denominação", "Descricao do objeto tecnico"],
+  flLabel: ["Denominação do loc.instalação", "Denominação do local", "Denominacao do loc instalacao"],
+  description: ["Texto breve", "Descrição", "Descricao", "Texto breve da ordem"],
+  sys: ["Status do sistema", "Status SAP"],
+  usr: ["Status usuário", "Status do usuário", "Status usuario"],
+  priority: ["Prioridade"],
+  priorityText: ["Texto prioridade"],
+  activity: ["Tipo atividad.manut.", "Tipo da atividade de manutenção", "Tipo de atividade de manutenção"],
+  createdBy: ["Criado por"],
+  notifier: ["Notificador", "Técnico", "Tecnico"],
+  orderType: ["Tipo de ordem"], noteType: ["Tipo de nota"],
+  plannedDate: ["Data-base do início", "Data base do inicio", "Início programado"],
+  actualStart: ["Dta.início real", "Data de início real", "Inicio real da ordem"],
+  actualEnd: ["Data fim real da ordem", "Data fim real", "Fim real"],
+  closedDate: ["Data de conclusão", "Data de conclusao"],
+  createdDate: ["Data de entrada", "Criado em", "Data da nota"],
+  model: ["Denominação do tipo", "Modelo"],
+  manufacturer: ["Fabricante do imobilizado", "Fabricante"],
+  inventory: ["Nº inventário", "TAG conciliado", "TAG descrição"],
+  sortKey: ["Campo de ordenação", "TAG / Campo ordenação", "TAG conciliado"],
+  reservation: ["Nº reserva", "Número reserva"],
+  material: ["Material"],
+  materialText: ["Texto breve material", "Descrição material"],
+  qty: ["Qtd.necessária", "Quantidade necessária"],
+  qtyPosted: ["Qtd.  UM registro", "Qtd UM registro"],
+  qtyDiff: ["Quantidade diferença"],
+  finalFlag: ["Com registro final"],
+  deletedFlag: ["Item foi eliminado"],
+  needDate: ["Data da necessidade"],
+  workCenter: ["CenTrabalho princ.", "Centro de trabalho"],
+  planner: ["Grupo planej."], costCenter: ["Centro custo"],
+  damage: ["Texto descritivo", "Conjunto"],
+  code: ["Grupo de códigos", "Code codificação"],
+  typeObject: ["Tipo de objeto"], category: ["Ctg.loc.instalação", "Ctg.equipamento"]
+};
+const aliases = Object.fromEntries(Object.entries(fields).map(([k,v]) => [k, v.map(key)]));
+function lookup(row) {
+  const out = {};
+  for (const [k, v] of Object.entries(row || {})) out[key(k)] = text(v);
+  return out;
+}
+function pick(row, field) {
+  for (const a of aliases[field] || []) if (Object.prototype.hasOwnProperty.call(row,a) && row[a] !== "") return row[a];
+  return "";
+}
+function detectRole(headers) {
+  const h = new Set(headers.map(key));
+  const has = (s) => h.has(key(s));
+  if (has("Nº reserva") && has("Material")) return "reservations";
+  if (has("Tipo de ordem") && has("Ordem")) return "orders";
+  if (has("Tipo de nota") && has("Nota")) return "notes";
+  if ((has("Equipamento") || has("Equipamento SAP")) && (has("Denominação do objeto técnico") || has("Descrição do objeto técnico")) && (has("Fabricante do imobilizado") || has("Nº inventário") || has("Status SAP"))) return "equipment";
+  if (has("Local de instalação") && (has("Tipo de objeto") || has("Ctg.loc.instalação") || has("Categoria do local"))) return "locations";
+  if (has("Ordem") && has("Texto breve")) return "orders";
+  if (has("Nota") && has("Notificador")) return "notes";
+  if ((has("Equipamento") || has("Equipamento SAP")) && (has("Denominação do objeto técnico") || has("Descrição do objeto técnico"))) return "equipment";
+  if (has("Local de instalação") && (has("Denominação do loc.instalação") || has("Denominação do local"))) return "locations";
+  return null;
+}
+function normalizeRows(role, rows) {
+  if (!ROLES.includes(role)) throw new Error("Tipo de fonte desconhecido: " + role);
+  return rows.map((source, i) => {
+    const m = lookup(source);
+    const common = {
+      sourceIndex: i + 2, role, raw: source,
+      equipment: pick(m,"equipment"), fl: pick(m,"fl"),
+      object: pick(m,"object"), flLabel: pick(m,"flLabel"),
+      sys: pick(m,"sys"), usr: pick(m,"usr"),
+      createdBy: pick(m,"createdBy"), activity: pick(m,"activity"),
+      priority: pick(m,"priority"), priorityText: pick(m,"priorityText"),
+      workCenter: pick(m,"workCenter"), planner: pick(m,"planner"),
+      costCenter: pick(m,"costCenter"), createdDate: pick(m,"createdDate")
+    };
+    if (role === "orders") return {...common,
+      id: pick(m,"id"), note: pick(m,"note"), description: pick(m,"description"),
+      type: pick(m,"orderType"), plannedDate: pick(m,"plannedDate"),
+      actualStart: pick(m,"actualStart"), actualEnd: pick(m,"actualEnd"),
+      closedDate: pick(m,"closedDate"), materialText: pick(m,"materialText") };
+    if (role === "notes") return {...common,
+      id: pick(m,"note"), order: pick(m,"id"), description: pick(m,"description"),
+      type: pick(m,"noteType"), notifier: pick(m,"notifier"),
+      damage: pick(m,"damage"), code: pick(m,"code") };
+    if (role === "equipment") return {...common,
+      id: pick(m,"equipment"), model: pick(m,"model"),
+      manufacturer: pick(m,"manufacturer"), inventory: pick(m,"inventory"),
+      category: pick(m,"category") };
+    if (role === "locations") return {...common,
+      id: pick(m,"fl"), type: pick(m,"typeObject"), category: pick(m,"category"),sortKey:pick(m,"sortKey") };
+    return {...common, id: pick(m,"reservation"), order: pick(m,"id"),
+      material: pick(m,"material"), description: pick(m,"materialText"),
+      qty: pick(m,"qty"), qtyPosted: pick(m,"qtyPosted"), qtyDiff: pick(m,"qtyDiff"),
+      finalFlag: pick(m,"finalFlag"), deletedFlag: pick(m,"deletedFlag"),
+      needDate: pick(m,"needDate")};
+  });
+}
+function asDate(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) return new Date(Date.UTC(value.getUTCFullYear(),value.getUTCMonth(),value.getUTCDate()));
+  const s = text(value); if (!s || s === "0") return null;
+  if (/^\d{5}(?:\.\d+)?$/.test(s)) {
+    const n = Number(s);
+    if (n < 20000 || n > 100000) return null;
+    return new Date(Date.UTC(1899,11,30) + Math.floor(n)*86400000);
+  }
+  let m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (m) return checkedDate(+m[1],+m[2],+m[3]);
+  m = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+  if (m) return checkedDate(+m[3],+m[2],+m[1]);
+  return null;
+}
+function checkedDate(y,m,d) {
+  const v = new Date(Date.UTC(y,m-1,d));
+  return v.getUTCFullYear()===y && v.getUTCMonth()===m-1 && v.getUTCDate()===d?v:null;
+}
+function isoDate(v) { const d=asDate(v); return d?d.toISOString().slice(0,10):""; }
+function machineTag(desc) {
+  const m = text(desc).match(/\b\d{3}[- ]\d{3}\b/);
+  return m ? m[0].replace(" ","-") : "";
+}
+function createModel(bases) {
+  const norm = {};
+  for (const role of ROLES) norm[role] = normalizeRows(role,bases[role] || []);
+  const byEquip = new Map(), byFL = new Map(), byTag = new Map(), materials = new Map();
+  const counts = {};
+  for (const role of ROLES) counts[role] = norm[role].length;
+  for (const e of norm.equipment) {
+    if (e.id) byEquip.set(e.id,e);
+    const tag = machineTag(e.object) || machineTag(e.inventory);
+    if (tag) {
+      if (!byTag.has(tag)) byTag.set(tag,[]);
+      byTag.get(tag).push(e);
+    }
+  }
+  for (const fl of norm.locations) if (fl.id) byFL.set(fl.id,fl);
+  for (const item of norm.reservations) {
+    if (!item.material) continue;
+    if (!materials.has(item.material)) materials.set(item.material,{material:item.material,description:item.description,rows:0,orders:new Set(),qty:0});
+    const mat=materials.get(item.material);
+    mat.rows++; if(item.order)mat.orders.add(item.order);
+    mat.qty+=Number(text(item.qty).replace(",", "."))||0;
+    if(!mat.description && item.description) mat.description=item.description;
+  }
+  const noteByOrder = new Map(), reservesByOrder = new Map();
+  for (const n of norm.notes) if (n.order) {
+    if(!noteByOrder.has(n.order)) noteByOrder.set(n.order,[]);
+    noteByOrder.get(n.order).push(n);
+  }
+  for (const r of norm.reservations) if (r.order) {
+    if(!reservesByOrder.has(r.order)) reservesByOrder.set(r.order,[]);
+    reservesByOrder.get(r.order).push(r);
+  }
+  const byOrder = new Map();
+  for (const o of norm.orders) {
+    if (!o.id) continue;
+    if (!byOrder.has(o.id)) byOrder.set(o.id,{...o,duplicateRows:1});
+    else {
+      const current=byOrder.get(o.id); current.duplicateRows++;
+      for (const name of ["equipment","fl","object","flLabel","sys","usr","description","actualStart","actualEnd","closedDate","plannedDate"])
+        if (!current[name] && o[name]) current[name]=o[name];
+    }
+  }
+  const orders=[];
+  for (const o of byOrder.values()) {
+    const linkedNotes=noteByOrder.get(o.id)||[];
+    const linkedMaterials=reservesByOrder.get(o.id)||[];
+    const n=linkedNotes[0]||null;
+    const eq=o.equipment||(n?.equipment||"");
+    const fl=o.fl||(n?.fl||"");
+    const identity=resolveAsset(eq,fl,o.object||(n?.object||""),byEquip,byFL,byTag);
+    orders.push({...o, equipment:eq, fl, identity, notes:linkedNotes, reserves:linkedMaterials,
+      description:o.description||(n?.description||""), notifier:n?.notifier||"",
+      materialCount:linkedMaterials.length,
+      materialCodes:[...new Set(linkedMaterials.map(r=>r.material).filter(Boolean))],
+      noteDescription:n?.description||""});
+  }
+  const stats=buildDictionaries(norm,byEquip,byFL);
+  return {norm, counts, byEquip, byFL, byTag, materials, orders, dictionaries:stats,
+    orphans:{notes:norm.notes.filter(n=>!n.order).length,
+      reservations:norm.reservations.filter(r=>r.order&&!byOrder.has(r.order)).length}};
+}
+function resolveAsset(equipment,fl,desc,byEquip,byFL,byTag) {
+  const eq=text(equipment), loc=text(fl);
+  if (eq) {
+    const e=byEquip.get(eq);
+    return {id:"EQ:"+eq,level:"equipment",label:e?.object||desc||eq,
+      tag:machineTag(e?.object||desc),method:e?"cadastro de equipamento":"identificador da ordem",confidence:"alta"};
+  }
+  // Sem codificar a hierarquia de nenhuma empresa. O usuário fornece o
+  // vínculo pelo campo de ordenação dos locais técnicos e pelo mestre de equipamentos.
+  if (loc) {
+    let current=loc,tag="",matchedLocation="";
+    while(current) {
+      const record=byFL.get(current);
+      if(record) {
+        const t=machineTag(record.sortKey);
+        if(t){tag=t;matchedLocation=current;break;}
+      }
+      const dash=current.lastIndexOf("-");
+      if(dash<0)break;
+      current=current.slice(0,dash);
+    }
+    const matches=tag?(byTag.get(tag)||[]):[];
+    if(matches.length===1) {
+      return {id:"EQ:"+matches[0].id,level:"equipment",label:matches[0].object,
+        tag,method:"campo de ordenação do local técnico + TAG do equipamento",confidence:"média"};
+    }
+    // Quando existe TAG do local sem equipamento único, não inventar correspondência.
+    if(tag) {
+      return {id:"FLTAG:"+tag,level:"functional_location",
+        label:byFL.get(matchedLocation)?.flLabel||"Local técnico "+tag,tag,
+        method:matches.length?"TAG ambígua no mestre de equipamentos":"TAG sem equipamento correspondente",
+        confidence:"baixa"};
+    }
+    return {id:"FL:"+loc,level:"functional_location",
+      label:byFL.get(loc)?.flLabel||loc,tag:"",
+      method:"local de instalação (sem conciliação)",confidence:"baixa"};
+  }
+  return {id:"UNRESOLVED",level:"unresolved",label:"Objeto técnico não identificado",
+    tag:"",method:"ausente",confidence:"baixa"};
+}
+const dictionaryFields=[
+  ["Equipamento","equipment","object"],["Local de instalação","fl","flLabel"],
+  ["Status do sistema","sys"],["Status do usuário","usr"],
+  ["Tipo de atividade de manutenção","activity"],["Prioridade","priority","priorityText"],
+  ["Criado por","createdBy"],["Técnico / Notificador","notifier"],
+  ["Tipo de ordem / nota","type"],["Centro de trabalho","workCenter"],
+  ["Grupo planejador","planner"],["Centro de custo","costCenter"],
+  ["Modelo","model"],["Fabricante","manufacturer"],["Categoria","category"],["Campo de ordenação","sortKey"],
+  ["Código de catálogo","code"],["Material","material","description"]
+];
+function buildDictionaries(norm,byEquip,byFL) {
+  const index=new Map();
+  for(const [role,rows] of Object.entries(norm)) for(const row of rows) {
+    for(const [dimension,col,label] of dictionaryFields) {
+      let value=text(row[col]); if(!value)continue;
+      let title=text(row[label]);
+      if(col==="equipment"&&!title)title=byEquip.get(value)?.object||"";
+      if(col==="fl"&&!title)title=byFL.get(value)?.flLabel||"";
+      const id=dimension+"|"+value;
+      if (!index.has(id))index.set(id,{dimension,code:value,description:title,count:0,sources:new Set()});
+      const entry=index.get(id);entry.count++;entry.sources.add(role);
+      if(!entry.description && title) entry.description=title;
+    }
+  }
+  return [...index.values()].map(x=>({...x,sources:[...x.sources].join(", ")}));
+}
+const patterns={
+  "roletes":/\bROLET(?:E|ES)\b|\bROLLER[S]?\b/,
+  "roda guia":/RODA\s+GUIA|\bIDLER\b/,
+  "roda motriz / segmento":/RODA\s+MOTRIZ|\bSPROCKET\b|SEGMENTO[S]?\s+(?:DA\s+)?RODA/,
+  "sapatas / fixações":/\bSAPATAS?\b|PARAFUSO[S]?\s+(?:DE\s+)?SAPATA/,
+  "tensionamento":/\bTENSOR\b|\bESTICADOR\b|AJUSTADOR\s+(?:DE\s+)?ESTEIRA/,
+  "pinos e buchas":/\bPINOS?\b|\bBUCHAS?\b|\bELOS?\b/,
+  "proteções":/\bPROTE[TÇC][AÃAO]+\b|\bPROTETOR(?:ES)?\b/,
+  "esteira completa":/(?:\bESTEIRAS?\b|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+(?:DE\s+)?ESTEIRA)/,
+  "material rodante geral":/MATERIAL\s+RODANTE|\bRODANTE\b|\bUNDERCARRIAGE\b/
+};
+const activityPattern=/\b(TROC\w*|SUBST\w*|REPLAC\w*|RENOV\w*)\b/;
+const installationPattern=/\b(MONTAGEM|INSTAL\w*|REINSTAL\w*)\b/;
+const preventivePattern=/\b(INSPEC\w*|VERIFIC\w*|LUBRIF\w*|AVALI\w*|MEDI\w*|TENSION\w*|AJUST\w*|DIAGNOSTIC\w*)\b/;
+function classifyRodante(order) {
+  const main=key([order.description,order.noteDescription].filter(Boolean).join(" "));
+  const reserveText=key((order.reserves||[]).map(x=>x.description).join(" "));
+  const materialText=key(order.materialText);
+  const context=key(order.flLabel);
+  // Evidência textual da atividade é diferente de uma reserva de material.
+  let component="";
+  for (const [name,re] of Object.entries(patterns)) if(re.test(main)) {component=name;break;}
+  const narrativeComponent=component;
+  if(!component)for (const [name,re] of Object.entries(patterns)) if(re.test(reserveText+" "+materialText)) {component=name;break;}
+  const materialOnly=Boolean(component&&!narrativeComponent);
+  // Evita associar corrente de avanço da perfuratriz à corrente de esteira.
+  if (/CORRENTE\s+DE\s+AVANCO/.test(main) && !/ESTEIR|RODANTE|ROLETE|RODA\s+GUIA|RODA\s+MOTRIZ/.test(main))
+    component="";
+  const replacement=activityPattern.test(main);
+  const installation=installationPattern.test(main) && !replacement;
+  const inspection=preventivePattern.test(main) && !replacement && !installation;
+  const status=key(order.sys).split(" ");
+  const cancelled=status.includes("NEXE") || status.includes("CANC");
+  const closed=status.includes("ENTE") || status.includes("ENCE");
+  const actual=isoDate(order.actualEnd)||isoDate(order.actualStart);
+  const proxy=isoDate(order.plannedDate)||isoDate(order.createdDate);
+  let evidence="não classificado";
+  if(component && materialOnly)evidence="indício apenas por material reservado";
+  else if(component && replacement) {
+    if(cancelled)evidence="cancelado / não executado";
+    else if(closed && actual)evidence="confirmado por status e data real";
+    else if(closed)evidence="provável (sem data real)";
+    else evidence="planejado / pendente";
+  } else if(component && installation)evidence="montagem / instalação — verificar se houve substituição";
+  else if(component && inspection)evidence="inspeção / ajuste";
+  else if(component)evidence="menção sem troca identificada";
+  const right=/\bL\s*D\b|LADO\s+DIREITO|DIREITA\b/.test(main);
+  const left=/\bL\s*E\b|LADO\s+ESQUERDO|ESQUERDA\b/.test(main);
+  const both=(left&&right)||/AMBOS\s+OS\s+LADOS|PAR\s+DE\s+ESTEIRAS/.test(main);
+  const side=both?"ambos":right?"direito":left?"esquerdo":"não informado";
+  return {component,side,replacement,installation,inspection,evidence,dateReal:actual,dateProxy:proxy,materialOnly,
+    isCandidate:Boolean(component&&replacement&&!cancelled&&!materialOnly),
+    contextOnly:!component&&Boolean(context.match(/ESTEIR|RODANTE/))};
+}
+const diffDays=(a,b)=>(asDate(b).getTime()-asDate(a).getTime())/86400000;
+const mean=v=>v.length?v.reduce((a,b)=>a+b,0)/v.length:null;
+const median=v=>{if(!v.length)return null;const t=[...v].sort((a,b)=>a-b);return t.length%2?t[(t.length-1)/2]:(t[t.length/2-1]+t[t.length/2])/2;};
+function analyzeRodante(model,{allowProxy=false,component="esteira completa",assetPrefix=""}={}) {
+  const candidates=[];
+  for(const order of model.orders){
+    const analysis=classifyRodante(order);
+    if(!analysis.component || (component!=="todos"&&analysis.component!==component))continue;
+    if(assetPrefix && !key(order.identity.label+" "+order.identity.tag).includes(key(assetPrefix)))continue;
+    candidates.push({...order,analysis});
+  }
+  const eligible = candidates.filter(c=>c.analysis.isCandidate);
+  const samples=[];
+  for (const c of eligible) {
+    const a=c.analysis;
+    if(a.dateReal&&a.evidence==="confirmado por status e data real") {
+      for(const side of a.side==="ambos"?["direito","esquerdo"]:[a.side])
+        samples.push({asset:c.identity.id,label:c.identity.label,tag:c.identity.tag,component:a.component,side,
+          date:a.dateReal,order:c.id,confidence:"data real",source:c});
+    } else if(allowProxy&&a.evidence==="provável (sem data real)"&&a.dateProxy) {
+      for(const side of a.side==="ambos"?["direito","esquerdo"]:[a.side])
+        samples.push({asset:c.identity.id,label:c.identity.label,tag:c.identity.tag,component:a.component,side,
+          date:a.dateProxy,order:c.id,confidence:"data substituta",source:c});
+    }
+  }
+  const groups=new Map();
+  for(const s of samples){
+    if(s.asset==="UNRESOLVED")continue;
+    const k=[s.asset,s.component,s.side].join("|");
+    if(!groups.has(k))groups.set(k,[]);
+    groups.get(k).push(s);
+  }
+  const intervals=[]; const audit=[];let clusters=0;
+  for(const [group,events] of groups){
+    events.sort((a,b)=>a.date.localeCompare(b.date)||a.order.localeCompare(b.order));
+    const distinct=[];
+    for(const e of events){
+      const last=distinct.at(-1);
+      if(last&&diffDays(last.date,e.date)<=7){
+        last.orders.push(e.order);last.proxies ||= e.confidence==="data substituta";
+        clusters++;continue;
+      }
+      distinct.push({...e,orders:[e.order],proxies:e.confidence==="data substituta"});
+    }
+    audit.push(...distinct.map(x=>({asset:x.label,tag:x.tag,component:x.component,side:x.side,date:x.date,orders:x.orders.join("; "),origin:x.proxies?"data substituta":"data real"})));
+    for(let i=1;i<distinct.length;i++){
+      const earlier=distinct[i-1],later=distinct[i];
+      const days=diffDays(earlier.date,later.date);
+      if(days>0)intervals.push({asset:later.label,tag:later.tag,component:later.component,side:later.side,
+        first:earlier.date,last:later.date,days,orders:earlier.orders.join("; ")+" → "+later.orders.join("; "),
+        quality:earlier.proxies||later.proxies?"estimativa":"verificado"});
+    }
+  }
+  const byAsset=new Map();
+  for(const x of intervals){
+    const k=x.asset+"|"+x.component+"|"+x.side;
+    if(!byAsset.has(k))byAsset.set(k,[]);
+    byAsset.get(k).push(x.days);
+  }
+  const summary=[...byAsset.entries()].map(([k,days])=>{
+    const [asset,component,side]=k.split("|");
+    return {asset,component,side,intervals:days.length,meanDays:mean(days),medianDays:median(days),minDays:Math.min(...days),maxDays:Math.max(...days)};
+  }).sort((a,b)=>b.intervals-a.intervals);
+  const allComponents=new Set(intervals.map(x=>x.component));
+  const mixingComponents=allComponents.size>1;
+  return {candidates,eligible,intervals,audit,summary,meanDays:mixingComponents?null:mean(intervals.map(x=>x.days)),
+    medianDays:mixingComponents?null:median(intervals.map(x=>x.days)),mixingComponents,clustered:clusters,
+    dataMode:allowProxy?"inclui datas substitutas":"somente datas reais",
+    excluded:eligible.filter(x=>!x.analysis.dateReal && !(allowProxy&&x.analysis.dateProxy)).length};
+}
+function enrichRows(model,role) {
+  const items=model.norm[role]||[];
+  return items.map(r=>{
+    const eq=model.byEquip.get(r.equipment);
+    const fl=model.byFL.get(r.fl);
+    const identity=resolveAsset(r.equipment,r.fl,r.object,model.byEquip,model.byFL,model.byTag);
+    return {...r.raw,
+      "Enriq. Equipamento":r.equipment,
+      "Enriq. Denominação equipamento":eq?.object||r.object||"",
+      "Enriq. Local de instalação":r.fl,
+      "Enriq. Denominação local":fl?.flLabel||r.flLabel||"",
+      "Enriq. Chave do ativo":identity.id,
+      "Enriq. Método vínculo":identity.method,
+      "Enriq. Confiança vínculo":identity.confidence,
+      "Enriq. Status do sistema":r.sys,
+      "Enriq. Status do usuário":r.usr,
+      "Enriq. Atividade":r.activity,
+      "Enriq. Prioridade":r.priorityText||r.priority,
+      "Enriq. Criado por":r.createdBy,
+      "Enriq. Notificador":r.notifier||""
+    };
+  });
+}
+function exportMaterials(model) {
+  return [...model.materials.values()].map(m=>({Material:m.material,Descrição:m.description,
+    "Linhas MB24":m.rows,"Ordens distintas":m.orders.size,
+    "Quantidade solicitada (heterogênea: verificar UM)":m.qty,
+    "Natureza":"Reserva / necessidade — não comprova saída física"}));
+}
+
+const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null};
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function log(v){$("log").textContent=String(new Date().toLocaleTimeString("pt-BR"))+"  "+v+"\n"+$("log").textContent.slice(0,5500);}
+function num(v){return Number(v||0).toLocaleString("pt-BR");}
+function fmtDays(v){return Number.isFinite(v)?v.toLocaleString("pt-BR",{maximumFractionDigits:1})+" dias":"—";}
+function table(id,heads,rows,limit=150) {
+ const out=["<thead><tr>"+heads.map(h=>"<th>"+esc(h)+"</th>").join("")+"</tr></thead><tbody>"];
+ for(const row of rows.slice(0,limit))out.push("<tr>"+heads.map((_,i)=>"<td title='"+esc(row[i])+"'>"+esc(row[i])+"</td>").join("")+"</tr>");
+ if(!rows.length)out.push("<tr><td colspan='"+heads.length+"'>Nenhum registro disponível com os filtros atuais.</td></tr>");
+ $(id).innerHTML=out.join("")+"</tbody>";
+}
+function metrics(id,items) {
+ $(id).innerHTML=items.map(x=>"<div class='stat'><b>"+esc(x[0])+"</b><span>"+esc(x[1])+"</span></div>").join("");
+}
+function rebuild(){
+ state.model=createModel(state.bases);
+ renderAll();
+}
+function csvRows(content){
+ const d=content.replace(/^\ufeff/,"");
+ const firstLine=d.split(/\r?\n/,1)[0];
+ const sep=(firstLine.match(/;/g)||[]).length>(firstLine.match(/,/g)||[]).length?";":",";
+ const rows=[];let row=[],value="",quote=false;
+ for(let i=0;i<d.length;i++){
+  const c=d[i];
+  if(c==='"'){if(quote&&d[i+1]==='"'){value+='"';i++;}else quote=!quote;}
+  else if(c===sep&&!quote){row.push(value);value="";}
+  else if((c==="\n"||c==="\r")&&!quote){if(c==="\r"&&d[i+1]==="\n")i++;
+    row.push(value);if(row.some(x=>x!==""))rows.push(row);row=[];value="";}
+  else value+=c;
+ }
+ if(value||row.length){row.push(value);rows.push(row);}
+ const headers=rows.shift()||[];
+ return rows.map(r=>Object.fromEntries(headers.map((h,j)=>[h,r[j]??""])));
+}
+async function readSource(file,forced){
+ let datasets=[];
+ if(/\.csv$|\.tsv$/i.test(file.name)){
+  let source=await file.text();
+  if(/\.tsv$/i.test(file.name))source=source.replace(/\t/g,";");
+  const rows=csvRows(source);
+  datasets=[{sheet:"CSV",rows}];
+ } else {
+  if(!globalThis.XLSX)throw new Error("Leitor XLSX indisponível. Verifique o acesso ao CDN ou exporte CSV.");
+  const workbook=XLSX.read(await file.arrayBuffer(),{type:"array",cellDates:false});
+  datasets=workbook.SheetNames.map(sheet=>({sheet,rows:XLSX.utils.sheet_to_json(workbook.Sheets[sheet],{raw:false,defval:""})}));
+ }
+ const byRole=new Map();
+ for(const item of datasets) {
+  if(!item.rows.length)continue;
+  const role=forced!=="auto"?forced:detectRole(Object.keys(item.rows[0]));
+  if(!role)continue;
+  if(!byRole.has(role)||byRole.get(role).rows.length<item.rows.length)byRole.set(role,{...item,role});
+ }
+ if(!byRole.size)throw new Error("Não identifiquei colunas SAP compatíveis em "+file.name+". Escolha o tipo manualmente ou confira o cabeçalho.");
+ return [...byRole.values()].map(item=>({...item,file:file.name}));
+}
+async function importFiles(input,role="auto"){
+ const files=[...$(input).files];
+ if(!files.length){log("Selecione ao menos um arquivo.");return;}
+ for(const file of files)try{
+  const payloads=await readSource(file,role);
+  for(const p of payloads){
+   state.bases[p.role].push(...p.rows);
+   state.loaded.push({file:p.file,sheet:p.sheet,role:p.role,rows:p.rows.length});
+   log("Lido: "+p.role+" / "+p.rows.length+" linhas / "+file.name+" / "+p.sheet);
+  }
+ }catch(e){log("ERRO "+file.name+": "+(e.message||e));}
+ $(input).value="";
+ rebuild();
+}
+function downloadSheets(name,sheets){
+ if(!sheets.length)return log("Não há dados para exportar.");
+ if(globalThis.XLSX){
+  const book=XLSX.utils.book_new();
+  for(const s of sheets){const ws=XLSX.utils.json_to_sheet(s.rows.length?s.rows:[{"Aviso":"Nenhum dado disponível"}]);
+   XLSX.utils.book_append_sheet(book,ws,s.name.slice(0,31));}
+  XLSX.writeFile(book,name+".xlsx"); log("Arquivo exportado localmente: "+name+".xlsx");
+ }else{
+  const s=sheets[0],cols=[...new Set(s.rows.flatMap(r=>Object.keys(r)))];
+  const quote=v=>'"'+String(v??"").replaceAll('"','""')+'"';
+  const csv=[cols.map(quote).join(";"),...s.rows.map(r=>cols.map(c=>quote(r[c])).join(";"))].join("\r\n");
+  const blob=new Blob(["\ufeff",csv],{type:"text/csv;charset=utf-8"});
+  const url=URL.createObjectURL(blob);const a=document.createElement("a");
+  a.href=url;a.download=name+".csv";a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);
+ }
+}
+function renderCatalog(){
+ const m=state.model;
+ metrics("datasetMetrics",[
+  [num(m.counts.equipment),"Equipamentos"],[num(m.counts.locations),"Locais técnicos"],
+  [num(m.counts.orders),"Ordens IW39"],[num(m.counts.notes),"Notas IW29"],
+  [num(m.dictionaries.length),"Entradas no dicionário"]
+ ]);
+ const dimensions=[...new Set(m.dictionaries.map(x=>x.dimension))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+ const current=$("filterDictionary").value;
+ $("filterDictionary").innerHTML='<option value="">Todos os campos</option>'+dimensions.map(x=>"<option value='"+esc(x)+"'>"+esc(x)+"</option>").join("");
+ $("filterDictionary").value=dimensions.includes(current)?current:"";
+ const term=key($("searchDictionary").value),cat=$("filterDictionary").value;
+ const result=m.dictionaries.filter(x=>(!cat||x.dimension===cat)&&(!term||key(x.dimension+" "+x.code+" "+x.description+" "+x.sources).includes(term)));
+ $("dictCount").textContent=num(result.length)+" registros do dicionário; exibindo até 180.";
+ table("dictionaryTable",["Domínio","Código / chave","Denominação","Ocorrências","Origem"],result.map(x=>[x.dimension,x.code,x.description,x.count,x.sources]),180);
+ $("loadedFiles").innerHTML=state.loaded.length?state.loaded.map(f=>"<div class='pill' style='margin:4px 0'><strong>"+esc(f.role)+"</strong> · "+num(f.rows)+" linhas · "+esc(f.file)+" / "+esc(f.sheet)+"</div>").join(""):"Nenhum arquivo carregado.";
+}
+function renderMaterials(){
+ const m=state.model;const list=exportMaterials(m);
+ metrics("materialMetrics",[
+  [num(m.counts.reservations),"Linhas MB24"],[num(list.length),"Materiais distintos"],
+  [num(new Set(m.norm.reservations.map(x=>x.order).filter(Boolean)).size),"Ordens referenciadas"],
+  [num(m.norm.reservations.filter(x=>!x.order).length),"Sem número de ordem"],
+  [num(m.orphans.reservations),"Reservas sem ordem na base IW39"]
+ ]);
+ const term=key($("searchMaterials").value);
+ const filtered=list.filter(x=>!term||key(x.Material+" "+x.Descrição).includes(term));
+ table("materialsTable",["Material","Descrição da reserva","Linhas","Ordens","Qtd. solicitada*"],filtered.map(x=>[x.Material,x.Descrição,x["Linhas MB24"],x["Ordens distintas"],x["Quantidade solicitada (heterogênea: verificar UM)"]]),180);
+}
+function renderHistory(){
+ const m=state.model;
+ const withEquip=m.orders.filter(o=>o.identity.level==="equipment").length;
+ metrics("historyMetrics",[
+  [num(m.orders.length),"Ordens distintas"],[num(m.orders.filter(o=>o.notes.length).length),"Ordens com notas"],[num(m.orders.filter(o=>o.reserves.length).length),"Ordens com reservas"],[num(withEquip),"Ordens com equipamento conciliado"],[num(m.orphans.notes),"Notas sem ordem informada"]
+ ]);
+ const term=key($("searchOrders").value);
+ const filtered=m.orders.filter(x=>!term||key(x.id+" "+x.description+" "+x.identity.label+" "+x.fl+" "+x.materialCodes.join(" ")).includes(term));
+ table("ordersTable",["OS","Objeto resolvido","Texto breve","Sistema","Usuário","Prioridade","Atividade","Reservas","Identidade"],filtered.map(x=>[
+  x.id,x.identity.label,x.description,x.sys,x.usr,x.priorityText||x.priority,x.activity,x.materialCount,x.identity.method+" ("+x.identity.confidence+")"
+ ]),120);
+ renderRodante();
+}
+function renderRodante(){
+ const m=state.model;
+ const allowProxy=$("allowProxy").checked;
+ const component=$("componentFilter").value,assetPrefix=$("assetFilter").value;
+ const r=analyzeRodante(m,{allowProxy,component,assetPrefix});
+ state.report=r;
+ metrics("rodanteMetrics",[
+  [num(r.candidates.length),"Ordens com componente"],[num(r.eligible.length),"Ordens candidatas a troca"],
+  [num(r.audit.length),"Eventos agrupados"],[num(r.intervals.length),"Intervalos calculáveis"],
+  [fmtDays(r.meanDays),"Média entre trocas"]
+ ]);
+ const uncertain=r.eligible.filter(x=>x.analysis.evidence==="provável (sem data real)").length;
+ const pending=r.eligible.filter(x=>x.analysis.evidence==="planejado / pendente").length;
+ const notice=allowProxy
+  ?"MODO EXPLORATÓRIO: estimativas podem usar data-base em substituição à data real. Os intervalos não representam vida útil comprovada. Confirme as intervenções antes de decidir compra, PM ou garantia."
+  :"MODO RIGOROSO: somente trocas com status indicativo de execução E data real são usadas nos intervalos. Ordens sem data real ("+num(uncertain)+" prováveis neste filtro) não entram na média. "+num(pending)+" permanecem planejadas/pendentes.";
+ $("rodanteWarning").textContent=notice+(r.mixingComponents?" ATENÇÃO: o conjunto contém componentes de naturezas diferentes; não é apresentada média global misturada. Selecione um componente.":"");
+ const maxMean=Math.max(1,...r.summary.map(x=>x.meanDays));
+ $("lifeChart").innerHTML=r.summary.length?r.summary.slice(0,16).map(x=>"<div style=\"display:grid;grid-template-columns:minmax(150px,1fr) 2fr auto;gap:12px;align-items:center;margin:9px 0\"><span class=\"muted\">"+esc(x.asset)+" · "+esc(x.side)+"</span><div class=\"bar\"><i style=\"width:"+Math.round(100*x.meanDays/maxMean)+"%\"></i></div><strong>"+esc(fmtDays(x.meanDays))+"</strong></div>").join(""):"<p class=\"muted\">Não existem pares de eventos comparáveis neste filtro. Veja a lista de ordens candidatas abaixo.</p>";
+ table("intervalTable",["Ativo","Componente","Lado","Intervalos","Média","Mediana","Mínimo","Máximo"],r.summary.map(x=>[
+  x.asset,x.component,x.side,x.intervals,fmtDays(x.meanDays),fmtDays(x.medianDays),fmtDays(x.minDays),fmtDays(x.maxDays)
+ ]),150);
+ $("intervalCount").textContent="Intervalos entre substituições comparáveis: "+num(r.intervals.length)+
+  ". Múltiplas ordens do mesmo componente e lado dentro de 7 dias são agrupadas em um único evento provisório; verificar em auditoria.";
+ table("eventsTable",["Objeto","Componente","Lado","Data","Ordens vinculadas","Qualidade"],r.audit.map(x=>[
+  x.asset,x.component,x.side,x.date,x.orders,x.origin
+ ]),180);
+ table("candidatesTable",["Ordem","Objeto","Componente","Lado","Descrição","Status","Evidência","Data real","Data-base","Reservas"],r.candidates.map(o=>[
+  o.id,o.identity.label,o.analysis.component,o.analysis.side,o.description,o.sys,o.analysis.evidence,
+  o.analysis.dateReal,o.analysis.dateProxy,o.reserves.map(x=>x.material).join(", ")
+ ]),200);
+}
+function renderAll(){renderCatalog();renderMaterials();renderHistory();}
+document.querySelectorAll("[data-tab]").forEach(btn=>btn.addEventListener("click",()=>{
+ document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b===btn));
+ document.querySelectorAll(".view").forEach(s=>s.classList.toggle("active",s.id===btn.dataset.tab));
+}));
+$("btnCatalog").onclick=()=>importFiles("filesCatalog",$("roleCatalog").value);
+$("btnMaterials").onclick=()=>importFiles("filesMaterials","reservations");
+$("btnHistory").onclick=()=>importFiles("filesHistory","auto");
+for(const id of ["searchDictionary","searchMaterials","searchOrders","assetFilter"])$(id).addEventListener("input",()=>id==="searchDictionary"?renderCatalog():id==="searchMaterials"?renderMaterials():id==="searchOrders"?renderHistory():renderRodante());
+$("filterDictionary").onchange=renderCatalog;
+$("componentFilter").onchange=renderRodante;
+$("allowProxy").onchange=renderRodante;
+$("exportDictionary").onclick=()=>downloadSheets("dicionario_tecnico_sap",[{name:"Dicionarios",rows:state.model.dictionaries}]);
+$("exportEnriched").onclick=()=>{
+ const role=$("enrichRole").value;downloadSheets("sap_"+role+"_enriquecido",[{name:"DadosEnriquecidos",rows:enrichRows(state.model,role)}]);
+};
+$("exportMaterials").onclick=()=>downloadSheets("materiais_observados_mb24",[{name:"Materiais",rows:exportMaterials(state.model)}]);
+$("exportRodante").onclick=()=>{
+ const r=state.report;downloadSheets("relatorio_rodante",[
+  {name:"Resumo",rows:r.summary},{name:"Intervalos",rows:r.intervals.map(x=>({
+   Ativo:x.asset,Componente:x.component,Lado:x.side,Inicio:x.first,Fim:x.last,Dias:x.days,Ordens:x.orders,Qualidade:x.quality
+  }))},{name:"Eventos",rows:r.audit},{name:"Candidatas",rows:r.candidates.map(x=>({
+   Ordem:x.id,Ativo:x.identity.label,Componente:x.analysis.component,Lado:x.analysis.side,Texto:x.description,
+   Evidencia:x.analysis.evidence,DataReal:x.analysis.dateReal,DataBase:x.analysis.dateProxy,Status:x.sys
+  }))}]);
+};
+$("resetAll").onclick=()=>{state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];log("Sessão de dados limpa.");rebuild();};
+rebuild();
+</script>
+</body></html>
