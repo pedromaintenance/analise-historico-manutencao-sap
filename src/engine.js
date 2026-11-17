@@ -277,7 +277,7 @@ const patterns={
 const activityPattern=/\b(TROC\w*|SUBST\w*|REPLAC\w*|RENOV\w*)\b/;
 const installationPattern=/\b(MONTAGEM|INSTAL\w*|REINSTAL\w*)\b/;
 const preventivePattern=/\b(INSPEC\w*|VERIFIC\w*|LUBRIF\w*|AVALI\w*|MEDI\w*|TENSION\w*|AJUST\w*|DIAGNOSTIC\w*)\b/;
-export function classifyRodante(order) {
+export function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancellationStatuses=["NEXE","CANC"]}={}) {
   const main=key([order.description,order.noteDescription].filter(Boolean).join(" "));
   const reserveText=key((order.reserves||[]).map(x=>x.description).join(" "));
   const materialText=key(order.materialText);
@@ -295,8 +295,8 @@ export function classifyRodante(order) {
   const installation=installationPattern.test(main) && !replacement;
   const inspection=preventivePattern.test(main) && !replacement && !installation;
   const status=key(order.sys).split(" ");
-  const cancelled=status.includes("NEXE") || status.includes("CANC");
-  const closed=status.includes("ENTE") || status.includes("ENCE");
+  const cancelled=cancellationStatuses.map(key).some(code=>status.includes(code));
+  const closed=completionStatuses.map(key).some(code=>status.includes(code));
   const actual=isoDate(order.actualEnd)||isoDate(order.actualStart);
   const proxy=isoDate(order.plannedDate)||isoDate(order.createdDate);
   let evidence="não classificado";
@@ -320,10 +320,10 @@ export function classifyRodante(order) {
 const diffDays=(a,b)=>(asDate(b).getTime()-asDate(a).getTime())/86400000;
 const mean=v=>v.length?v.reduce((a,b)=>a+b,0)/v.length:null;
 const median=v=>{if(!v.length)return null;const t=[...v].sort((a,b)=>a-b);return t.length%2?t[(t.length-1)/2]:(t[t.length/2-1]+t[t.length/2])/2;};
-export function analyzeRodante(model,{allowProxy=false,component="esteira completa",assetPrefix=""}={}) {
+export function analyzeRodante(model,{allowProxy=false,component="esteira completa",assetPrefix="",completionStatuses=["ENTE","ENCE"],cancellationStatuses=["NEXE","CANC"]}={}) {
   const candidates=[];
   for(const order of model.orders){
-    const analysis=classifyRodante(order);
+    const analysis=classifyRodante(order,{completionStatuses,cancellationStatuses});
     if(!analysis.component || (component!=="todos"&&analysis.component!==component))continue;
     if(assetPrefix && !key(order.identity.label+" "+order.identity.tag).includes(key(assetPrefix)))continue;
     candidates.push({...order,analysis});
