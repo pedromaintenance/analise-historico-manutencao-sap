@@ -242,7 +242,7 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
   <div class="split"><div><div class="headline">Gerador de relatório · Offline · Dados em memória</div>
     <h2>Dashboard de ciclo de vida do material rodante</h2>
     <p class="help">Escolha as máquinas que entram no relatório. Cada equipamento apresenta TAG, tipo, modelo, início de operação aproximado, ciclo em dias, quantidade de ordens de troca e histórico de custos. Clique em <strong>Ver materiais</strong> na linha da OS para consultar as reservas.</p></div>
-    <button id="dashExportHtml" class="primary"><icon name="download" inline/> Exportar dashboard HTML</button></div>
+    <button id="dashExportHtml" class="primary">Exportar dashboard HTML</button></div>
   <div class="notice warning">O dashboard exportado incorpora os dados das máquinas selecionadas. É um arquivo privado: mantenha-o em pasta corporativa autorizada. Não o publique no GitHub, Pages ou repositórios de código.</div>
   <div class="toolbar">
     <label><input type="checkbox" id="dashAllowWeak"> Incluir candidatas de evidência fraca</label>
@@ -506,6 +506,84 @@ function renderLifecycle(){
 }
 function renderAll(){renderCatalog();renderMaterials();renderHistory();renderLifecycle();}
 
+
+function getDashboardBase(){
+ const status=[$("closingStatuses").value,$("cancelStatuses").value].join("|");
+ const cutoff=$("lifeAsOf").value||isoDate(new Date());
+ const cacheKey=state.dataVersion+"|"+cutoff+"|"+status+"|"+$("dashAllowWeak").checked;
+ if(cacheKey!==state.dashboardCacheKey||!state.dashboardCore){
+   state.dashboardCore=analyzeLifecycle(state.model,{
+     assetFilter:"",allowWeak:$("dashAllowWeak").checked,asOf:cutoff,
+     completionStatuses:$("closingStatuses").value.split(/[\s,;]+/).filter(Boolean),
+     cancellationStatuses:$("cancelStatuses").value.split(/[\s,;]+/).filter(Boolean)
+   });
+   state.dashboardCacheKey=cacheKey;
+ }
+ return state.dashboardCore;
+}
+function dashboardFilterMachines(){
+ const base=state.dashboardPayload?.machines||[];
+ const search=key($("dashSearch").value);
+ const family=$("dashFamily").value;
+ return base.filter(m=>(!family||m.family===family)&&
+   (!search||key(m.tag+" "+m.asset+" "+m.model+" "+m.equipment).includes(search)));
+}
+function renderDashboardSelections(){
+ const items=dashboardFilterMachines();
+ const all=state.dashboardPayload?.machines||[];
+ const selected=all.filter(m=>m.selected!==false);
+ $("dashSelectionCount").textContent=num(selected.length)+" de "+num(all.length)+" equipamentos incluídos. "+
+  num(items.length)+" equipamentos visíveis nos filtros.";
+ $("dashSelectionList").innerHTML=items.map(m=>
+  '<label class="dash-machine-choice"><input type="checkbox" data-dash-equipment="'+esc(m.id)+'"'+
+  (m.selected?' checked':'')+'><span><b>'+esc(m.tag||m.equipment||m.asset)+'</b>'+
+  esc(m.model)+' · '+esc(m.family)+'<small>'+esc(m.asset)+'</small>'+
+  '<small>'+m.changeOrders+' OS candidata(s) de substituição</small></span></label>'
+ ).join("")||'<p class="muted">Nenhum equipamento corresponde à busca.</p>';
+}
+function renderDashboard(){
+ const base=getDashboardBase();
+ const payload=buildDashboardData(base,{excluded:[...state.dashboardExcluded]});
+ state.dashboardPayload=payload;
+ const families=[...new Set(payload.machines.map(m=>m.family))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+ const previous=$("dashFamily").value;
+ $("dashFamily").innerHTML='<option value="">Todas as famílias</option>'+families.map(f=>
+  '<option value="'+esc(f)+'">'+esc(f)+'</option>').join("");
+ $("dashFamily").value=families.includes(previous)?previous:"";
+ renderDashboardSelections();
+ const selected=payload.machines.filter(m=>m.selected!==false);
+ const orderSet=new Set();
+ const daysSelected=[];
+ for(const m of selected){
+   for(const o of m.orders)if(o.isChange)orderSet.add(m.id+"|"+o.order);
+   if(m.days!==null&&m.days!==undefined)daysSelected.push(m.days);
+ }
+ metrics("dashStats",[
+  [num(selected.length),"Equipamentos selecionados"],
+  [num(orderSet.size),"Ordens de substituição candidatas"],
+  [num(selected.filter(m=>m.intervalCount>0).length),"Máquinas com intervalos sucessivos"],
+  [num(selected.filter(m=>m.firstCount>0).length),"Máquinas com primeira troca estimada"],
+  [num(selected.filter(m=>m.orders.some(o=>o.materialCount>0)).length),"Máquinas com reservas na base"]
+ ]);
+ $("dashPreviewCount").textContent=num(selected.length)+" máquina(s) no relatório";
+ $("dashPreview").innerHTML='<style>'+DASHBOARD_STYLE+'</style>'+
+  renderDashboardCards(payload,{includeOther:$("dashShowOther").checked});
+ if(!selected.length)$("dashPreview").innerHTML='<p class="notice">Selecione pelo menos um equipamento para gerar o dashboard.</p>';
+}
+function setDashboardVisible(checked){
+ const ids=dashboardFilterMachines().map(m=>m.id);
+ for(const id of ids)if(checked)state.dashboardExcluded.delete(id);
+  else state.dashboardExcluded.add(id);
+ renderDashboard();
+}
+function exportDashboardHTML(){
+ const payload=state.dashboardPayload||buildDashboardData(getDashboardBase());
+ const selected={...payload,machines:payload.machines.filter(m=>m.selected!==false)};
+ if(!selected.machines.length)return log("Selecione pelo menos um equipamento antes de exportar.");
+ const html=generateStandaloneDashboard(selected,{includeOther:$("dashShowOther").checked});
+ localDownload("dashboard_rodante_"+new Date().toISOString().slice(0,10)+".html",html,"text/html;charset=utf-8");
+ log("Dashboard privado exportado com "+selected.machines.length+" equipamentos. Guardar em ambiente autorizado.");
+}
 function localDownload(name,content,mime){
  const blob=content instanceof Blob?content:new Blob([content],{type:mime});
  const url=URL.createObjectURL(blob);
@@ -652,6 +730,20 @@ $("exportRodante").onclick=()=>{
   }))}
  ]);
 };
+$("dashExportHtml").onclick=exportDashboardHTML;
+$("dashSearch").oninput=renderDashboardSelections;
+$("dashFamily").onchange=renderDashboardSelections;
+$("dashShowOther").onchange=renderDashboard;
+$("dashAllowWeak").onchange=renderDashboard;
+$("dashIncludeVisible").onclick=()=>setDashboardVisible(true);
+$("dashExcludeVisible").onclick=()=>setDashboardVisible(false);
+$("dashSelectionList").addEventListener("change",event=>{
+ const el=event.target;
+ if(!el.matches("[data-dash-equipment]"))return;
+ const id=el.getAttribute("data-dash-equipment");
+ if(el.checked)state.dashboardExcluded.delete(id);else state.dashboardExcluded.add(id);
+ renderDashboard();
+});
 $("exportBundle").onclick=makeEnrichedPackage;
 $("exportSession").onclick=saveSessionJSON;
 $("exportSessionGzip").onclick=saveCompressedSessionJSON;
