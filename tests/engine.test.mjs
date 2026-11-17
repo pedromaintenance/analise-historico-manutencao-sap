@@ -168,7 +168,7 @@ test("separa custo total da OS do material reservado",()=>{
 });
 test("troca de módulos é parcial, e não substituição da esteira completa",()=>{
  const m=createModel({orders:[ord("M1","2026-01-01","TROCAR MÓDULOS DA ESTEIRA LD","ENTE")]});
- assert.equal(classifyRodante(m.orders[0]).operationClass,"troca mista / componentes adicionais");
+ assert.equal(classifyRodante(m.orders[0]).operationClass,"troca parcial / componente");
 });
 
 test("data-base futura não gera evento retroativo",()=>{
@@ -211,7 +211,7 @@ test("FPS e parafusos da esteira não viram troca de conjunto",()=>{
   {Ordem:"A","Tipo de ordem":"PM01","Texto breve":"SUBSTITUIR PARAFUSOS DA ESTEIRA LD","Status do sistema":"ENTE","Custos tot.reais":1000},
   {Ordem:"B","Tipo de ordem":"PM01","Texto breve":"SUBSTITUIÇÃO FPS","Status do sistema":"ENTE","Custos tot.reais":1000}
  ],notes:[{"Tipo de nota":"M1","Nota":"N1",Ordem:"B","Texto breve":"TROCA ESTEIRA"}]});
- assert.equal(classifyRodante(m.orders[0]).operationClass,"troca mista / componentes adicionais");
+ assert.equal(classifyRodante(m.orders[0]).operationClass,"troca parcial / componente");
  assert.equal(classifyRodante(m.orders[1]).operationClass,"menção / indeterminado");
  assert.equal(analyzeRodante(m,{asOf:"2026-11-17"}).intervals.length,0);
 });
