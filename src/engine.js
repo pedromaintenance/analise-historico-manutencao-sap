@@ -42,6 +42,8 @@ const fields = {
   closedDate: ["Data de conclusão", "Data de conclusao"],
   createdDate: ["Data de entrada", "Criado em", "Data da nota"],
   model: ["Denominação do tipo", "Modelo"],
+  acquisitionDate: ["Data de aquisição", "Data aquisição", "Dt. aquisição"],
+  serviceStart: ["Data entrada em serviço","Data de entrada em serviço","Data de comissionamento","Início em serviço","Início de operação","Data de início de operação"],
   manufacturer: ["Fabricante do imobilizado", "Fabricante"],
   inventory: ["Nº inventário", "TAG conciliado", "TAG descrição"],
   sortKey: ["Campo de ordenação", "TAG / Campo ordenação", "TAG conciliado"],
@@ -113,6 +115,7 @@ export function normalizeRows(role, rows) {
     if (role === "equipment") return {...common,
       id: pick(m,"equipment"), model: pick(m,"model"),
       manufacturer: pick(m,"manufacturer"), inventory: pick(m,"inventory"),
+      acquisitionDate:pick(m,"acquisitionDate"),serviceStart:pick(m,"serviceStart"),
       category: pick(m,"category") };
     if (role === "locations") return {...common,
       id: pick(m,"fl"), type: pick(m,"typeObject"), category: pick(m,"category"),sortKey:pick(m,"sortKey") };
@@ -278,7 +281,8 @@ const dictionaryFields=[
   ["Criado por","createdBy"],["Técnico / Notificador","notifier"],
   ["Tipo de ordem / nota","type"],["Centro de trabalho","workCenter"],
   ["Grupo planejador","planner"],["Centro de custo","costCenter"],
-  ["Modelo","model"],["Fabricante","manufacturer"],["Categoria","category"],["Campo de ordenação","sortKey"],
+  ["Modelo","model"],["Fabricante","manufacturer"],["Categoria","category"],
+  ["Data de aquisição","acquisitionDate"],["Entrada em serviço","serviceStart"],["Campo de ordenação","sortKey"],
   ["Código de catálogo","code"],["Material","material","description"],
   ["Unidade de medida","unit"]
 ];
