@@ -47,6 +47,13 @@ code{font-family:Consolas,monospace;background:#eef4f5;padding:2px 4px;border-ra
 footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
 @media(max-width:1000px){.summary{grid-template-columns:repeat(3,1fr)}.cols2,.cols3{grid-template-columns:1fr}.fileline{grid-template-columns:1fr}}
 @media(max-width:580px){.summary{grid-template-columns:repeat(2,1fr)}.container{padding:14px}.panel{padding:14px}.tabs{gap:3px}.tabs button{padding:10px 8px;font-size:12px}.stat b{font-size:20px}}
+.dash-selection-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;max-height:310px;overflow:auto;padding:3px}
+.dash-machine-choice{border:1px solid var(--line);border-radius:10px;padding:11px;background:#f9fbfc;display:flex;align-items:flex-start;gap:8px;cursor:pointer}
+.dash-machine-choice:hover{border-color:var(--blue)}
+.dash-machine-choice b{display:block;color:var(--blue)}
+.dash-machine-choice small{display:block;color:var(--sub)}
+.dash-machine-choice input{flex:none;margin-top:3px}
+@media print{#dashboard .panel:not(:last-child),header,footer{display:none!important}#dashboard .panel:last-child{border:0;box-shadow:none;padding:0}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 </head>
@@ -61,6 +68,7 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
     <button data-tab="materiais">02 · Materiais & MB24</button>
     <button data-tab="historico">03 · Ordens & rodante</button>
     <button data-tab="ciclo">04 · Ciclo de vida</button>
+    <button data-tab="dashboard">05 · Dashboard</button>
   </nav>
 </div></header>
 <main class="container">
@@ -228,12 +236,42 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
    <div class="tablewrap"><table id="lifeOpenTable"></table></div>
  </div>
 </section>
+
+<section id="dashboard" class="view">
+ <div class="panel">
+  <div class="split"><div><div class="headline">Gerador de relatório · Offline · Dados em memória</div>
+    <h2>Dashboard de ciclo de vida do material rodante</h2>
+    <p class="help">Escolha as máquinas que entram no relatório. Cada equipamento apresenta TAG, tipo, modelo, início de operação aproximado, ciclo em dias, quantidade de ordens de troca e histórico de custos. Clique em <strong>Ver materiais</strong> na linha da OS para consultar as reservas.</p></div>
+    <button id="dashExportHtml" class="primary"><icon name="download" inline/> Exportar dashboard HTML</button></div>
+  <div class="notice warning">O dashboard exportado incorpora os dados das máquinas selecionadas. É um arquivo privado: mantenha-o em pasta corporativa autorizada. Não o publique no GitHub, Pages ou repositórios de código.</div>
+  <div class="toolbar">
+    <label><input type="checkbox" id="dashAllowWeak"> Incluir candidatas de evidência fraca</label>
+    <label><input type="checkbox" id="dashShowOther" checked> Mostrar outras intervenções na tabela</label>
+  </div>
+  <div class="summary" id="dashStats"></div>
+ </div>
+ <div class="panel">
+  <div class="split"><div><h3>Selecionar equipamentos para o relatório</h3>
+    <p class="muted" id="dashSelectionCount"></p></div>
+    <div class="toolbar"><button id="dashIncludeVisible" type="button">Incluir visíveis</button><button id="dashExcludeVisible" type="button">Excluir visíveis</button></div></div>
+  <div class="toolbar"><input id="dashSearch" placeholder="Filtrar por TAG, modelo ou descrição">
+    <select id="dashFamily"><option value="">Todas as famílias</option></select></div>
+  <div id="dashSelectionList" class="dash-selection-list" role="group" aria-label="Equipamentos incluídos no dashboard"></div>
+ </div>
+ <div class="panel" style="padding:14px">
+  <div class="split"><div><h3>Prévia do relatório por equipamento</h3>
+    <p class="muted">A seleção acima controla os equipamentos exibidos e exportados. Valores de custo representam a ordem completa; as datas-base são planejadas.</p></div>
+    <span id="dashPreviewCount" class="pill"></span></div>
+  <div id="dashPreview"></div>
+ </div>
+</section>
 </main>
 <footer>Projeto aberto, sem dados de empresa embarcados · Processamento em memória, sem cookies, analytics ou armazenamento persistente · Uso técnico sujeito à validação do histórico SAP.</footer>
 <script type="module">
 import {ROLES,detectRole,createModel,analyzeRodante,analyzeLifecycle,serializeSession,restoreSession,enrichRows,exportMaterials,key,isoDate} from "./src/engine.js";
+import {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard} from "./src/dashboard.js";
 
-const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null,lifecycle:null};
+const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null,lifecycle:null,dashboardExcluded:new Set(),dashboardCore:null,dashboardCacheKey:"",dataVersion:0};
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function log(v){$("log").textContent=String(new Date().toLocaleTimeString("pt-BR"))+"  "+v+"\n"+$("log").textContent.slice(0,5500);}
@@ -250,7 +288,11 @@ function metrics(id,items) {
 }
 function rebuild(){
  state.model=createModel(state.bases);
+ state.dataVersion++;
+ state.dashboardCore=null;
+ state.dashboardCacheKey="";
  renderAll();
+ if($("dashboard").classList.contains("active"))renderDashboard();
 }
 function csvRows(content){
  const d=content.replace(/^\ufeff/,"");
@@ -472,13 +514,17 @@ function localDownload(name,content,mime){
  setTimeout(()=>URL.revokeObjectURL(url),5000);
 }
 function sessionSettings(){
- return {lifeAsOf:$("lifeAsOf").value,lifeAllowWeak:$("lifeAllowWeak").checked,
+ return {dashboardExcluded:[...state.dashboardExcluded],dashboardShowOther:$("dashShowOther").checked,dashboardAllowWeak:$("dashAllowWeak").checked,
+  lifeAsOf:$("lifeAsOf").value,lifeAllowWeak:$("lifeAllowWeak").checked,
    lifeAssetFilter:$("lifeAssetFilter").value,
    allowWeak:$("allowWeak").checked,allowProxy:$("allowProxy").checked,
    componentFilter:$("componentFilter").value,assetFilter:$("assetFilter").value,
    closingStatuses:$("closingStatuses").value,cancelStatuses:$("cancelStatuses").value};
 }
 function restoreSettings(s){
+ state.dashboardExcluded=new Set(Array.isArray(s.dashboardExcluded)?s.dashboardExcluded.map(String):[]);
+ if(s.dashboardShowOther!=null)$("dashShowOther").checked=Boolean(s.dashboardShowOther);
+ if(s.dashboardAllowWeak!=null)$("dashAllowWeak").checked=Boolean(s.dashboardAllowWeak);
  for(const id of ["lifeAsOf","lifeAssetFilter","componentFilter","assetFilter","closingStatuses","cancelStatuses"]){
   if(s[id]!=null)$(id).value=s[id];
  }
@@ -569,6 +615,7 @@ function saveLifeReport(){
 document.querySelectorAll("[data-tab]").forEach(btn=>btn.addEventListener("click",()=>{
  document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b===btn));
  document.querySelectorAll(".view").forEach(s=>s.classList.toggle("active",s.id===btn.dataset.tab));
+ if(btn.dataset.tab==="dashboard")renderDashboard();
 }));
 $("btnCatalog").onclick=()=>importFiles("filesCatalog",$("roleCatalog").value);
 $("btnMaterials").onclick=()=>importFiles("filesMaterials","reservations");
@@ -617,7 +664,7 @@ $("lifeAsOf").onchange=renderLifecycle;
 $("lifeAssetFilter").oninput=renderLifecycle;
 $("resetAll").onclick=()=>{
  if(!confirm("Apagar as bases carregadas nesta aba? Exporte um backup JSON antes de limpar."))return;
- state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];
+ state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];state.dashboardExcluded.clear();
  log("Sessão de dados limpa; backup não é gerado automaticamente.");rebuild();
 };
 rebuild();
