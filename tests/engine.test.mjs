@@ -330,3 +330,24 @@ test("nota sem ordem própria é localizada pela nota vinculada na IW39",()=>{
  assert.equal(m.orders[0].notes[0].id,"N-007");
  assert.equal(classifyRodante(m.orders[0]).faultEnd,"2026-01-04");
 });
+
+test("pacote enriquecido conserva as cinco fontes e pode ser reprocessado",()=>{
+ const originals={
+  equipment:[{Equipamento:"EQ-FICT","Denominação do objeto técnico":"TRATOR DE ESTEIRAS FICTÍCIO 050-999","Data de aquisição":"01/01/2025"}],
+  locations:[{"Local de instalação":"L-FICT","Tipo de objeto":"MAQUINA"}],
+  orders:[{Ordem:"OS-FICT","Tipo de ordem":"PM01",Equipamento:"EQ-FICT",
+   "Texto breve":"SUBSTITUIR ESTEIRA LD","Status do sistema":"ENCE",
+   "Custos tot.reais":1000,"Data-base do início":"01/01/2026"}],
+  notes:[{"Nota":"N-FICT","Tipo de nota":"M1","Ordem":"OS-FICT","Fim da avaria":"02/01/2026"}],
+  reservations:[{"Nº reserva":"RES-FICT",Ordem:"OS-FICT","Material":"MAT-FICT",
+   "Texto breve material":"ESTEIRA COMPLETA","Qtd.necessária":1}]
+ };
+ const first=createModel(originals);
+ const roundtrip=Object.fromEntries(["equipment","locations","orders","notes","reservations"].map(role=>
+   [role,enrichRows(first,role).map(row=>({...row,__SAP_ROLE:role}))]));
+ const second=createModel(roundtrip);
+ assert.equal(second.orders.length,1);
+ assert.equal(second.orders[0].reserves[0].material,"MAT-FICT");
+ assert.equal(second.orders[0].notes[0].id,"N-FICT");
+ assert.equal(second.byEquip.get("EQ-FICT").acquisitionDate,"01/01/2025");
+});
