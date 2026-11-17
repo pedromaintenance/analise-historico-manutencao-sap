@@ -274,7 +274,8 @@ const patterns={
   "esteira completa":/(?:\bESTEIRAS?\b|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+(?:DE\s+)?ESTEIRA)/,
   "material rodante geral":/MATERIAL\s+RODANTE|\bRODANTE\b|\bUNDERCARRIAGE\b/
 };
-const activityPattern=/\b(TROC\w*|SUBST\w*|REPLAC\w*|RENOV\w*|MONTAGEM|INSTAL\w*)\b/;
+const activityPattern=/\b(TROC\w*|SUBST\w*|REPLAC\w*|RENOV\w*)\b/;
+const installationPattern=/\b(MONTAGEM|INSTAL\w*|REINSTAL\w*)\b/;
 const preventivePattern=/\b(INSPEC\w*|VERIFIC\w*|LUBRIF\w*|AVALI\w*|MEDI\w*|TENSION\w*|AJUST\w*|DIAGNOSTIC\w*)\b/;
 export function classifyRodante(order) {
   const main=key([order.description,order.noteDescription].filter(Boolean).join(" "));
@@ -291,7 +292,8 @@ export function classifyRodante(order) {
   if (/CORRENTE\s+DE\s+AVANCO/.test(main) && !/ESTEIR|RODANTE|ROLETE|RODA\s+GUIA|RODA\s+MOTRIZ/.test(main))
     component="";
   const replacement=activityPattern.test(main);
-  const inspection=preventivePattern.test(main) && !replacement;
+  const installation=installationPattern.test(main) && !replacement;
+  const inspection=preventivePattern.test(main) && !replacement && !installation;
   const status=key(order.sys).split(" ");
   const cancelled=status.includes("NEXE") || status.includes("CANC");
   const closed=status.includes("ENTE") || status.includes("ENCE");
@@ -304,13 +306,14 @@ export function classifyRodante(order) {
     else if(closed && actual)evidence="confirmado por status e data real";
     else if(closed)evidence="provável (sem data real)";
     else evidence="planejado / pendente";
-  } else if(component && inspection)evidence="inspeção / ajuste";
+  } else if(component && installation)evidence="montagem / instalação — verificar se houve substituição";
+  else if(component && inspection)evidence="inspeção / ajuste";
   else if(component)evidence="menção sem troca identificada";
   const right=/\bL\s*D\b|LADO\s+DIREITO|DIREITA\b/.test(main);
   const left=/\bL\s*E\b|LADO\s+ESQUERDO|ESQUERDA\b/.test(main);
   const both=(left&&right)||/AMBOS\s+OS\s+LADOS|PAR\s+DE\s+ESTEIRAS/.test(main);
   const side=both?"ambos":right?"direito":left?"esquerdo":"não informado";
-  return {component,side,replacement,inspection,evidence,dateReal:actual,dateProxy:proxy,materialOnly,
+  return {component,side,replacement,installation,inspection,evidence,dateReal:actual,dateProxy:proxy,materialOnly,
     isCandidate:Boolean(component&&replacement&&!cancelled&&!materialOnly),
     contextOnly:!component&&Boolean(context.match(/ESTEIR|RODANTE/))};
 }
@@ -377,8 +380,10 @@ export function analyzeRodante(model,{allowProxy=false,component="esteira comple
     const [asset,component,side]=k.split("|");
     return {asset,component,side,intervals:days.length,meanDays:mean(days),medianDays:median(days),minDays:Math.min(...days),maxDays:Math.max(...days)};
   }).sort((a,b)=>b.intervals-a.intervals);
-  return {candidates,eligible,intervals,audit,summary,meanDays:mean(intervals.map(x=>x.days)),
-    medianDays:median(intervals.map(x=>x.days)),clustered:clusters,
+  const allComponents=new Set(intervals.map(x=>x.component));
+  const mixingComponents=allComponents.size>1;
+  return {candidates,eligible,intervals,audit,summary,meanDays:mixingComponents?null:mean(intervals.map(x=>x.days)),
+    medianDays:mixingComponents?null:median(intervals.map(x=>x.days)),mixingComponents,clustered:clusters,
     dataMode:allowProxy?"inclui datas substitutas":"somente datas reais",
     excluded:eligible.filter(x=>!x.analysis.dateReal && !(allowProxy&&x.analysis.dateProxy)).length};
 }
