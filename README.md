@@ -51,3 +51,9 @@ A ferramenta permite salvar e reabrir as bases sem repetir cinco importações:
 **Segurança:** tanto o pacote quanto o JSON contêm dados corporativos reais. O download é local. Não compartilhe em GitHub, GitHub Pages, tickets ou canais públicos. O navegador não salva automaticamente a sessão: exporte o backup antes de atualizar, limpar os dados ou fechar a aba.
 
 Uma troca simultânea dos lados esquerdo e direito representa duas esteiras físicas, mas uma única OS e um único custo de ordem. Dados de início de planejamento não comprovam a data da substituição executada. Tempo contado desde aquisição representa estimativa de primeira vida, e não vida comprovada da esteira original.
+
+## Sessões JSON compactadas
+
+O aplicativo aceita tanto sessões **.json** quanto sessões **.json.gz**. O formato compactado usa as APIs nativas CompressionStream e DecompressionStream em navegadores compatíveis, sem biblioteca ou servidor adicional. Para reabrir, selecione qualquer um dos dois formatos na opção Restaurar sessão. As duas variantes preservam todas as fontes carregadas e configurações, inclusive dados confidenciais: mantenha somente em dispositivo ou diretório corporativo autorizado.
+
+O relatório da tela Ciclo de vida preserva o número exato da ordem, o lado da máquina, a OS anterior, as reservas MB24, os custos e a qualidade da identidade do ativo. O campo de ordenação da IW39 e da IW29 é usado para conciliação, e uma TAG encontrada apenas na descrição da OS é sinalizada como vínculo de baixa confiança para revisão.
