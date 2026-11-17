@@ -60,6 +60,7 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
     <button class="active" data-tab="cadastros">01 · Cadastros técnicos</button>
     <button data-tab="materiais">02 · Materiais & MB24</button>
     <button data-tab="historico">03 · Ordens & rodante</button>
+    <button data-tab="ciclo">04 · Ciclo de vida</button>
   </nav>
 </div></header>
 <main class="container">
@@ -73,6 +74,31 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
      <option value="equipment">Equipamentos</option><option value="locations">Locais de instalação</option>
      <option value="orders">IW39 / Ordens</option><option value="notes">IW29 / Notas</option></select>
     <button class="primary" id="btnCatalog">Importar planilhas</button></div>
+ </div>
+ <div class="panel" id="sessionManager">
+  <div class="headline">Trabalho contínuo · sem repetir as cinco cargas</div>
+  <h2>Pacote enriquecido e sessão portátil</h2>
+  <p class="help">Depois da primeira importação, salve um pacote Excel com todas as bases e/ou um JSON de sessão. Ao voltar, basta importar <strong>um único arquivo</strong> para restaurar o contexto e calcular diretamente. Nada é enviado ao GitHub.</p>
+  <div class="toolbar">
+    <button id="exportBundle" class="primary">Exportar pacote Excel completo</button>
+    <button id="exportSession">Exportar sessão JSON</button>
+    <button id="exportLifeQuick">Exportar ciclo de vida</button>
+  </div>
+  <div class="grid cols2">
+    <div>
+     <h3>Reabrir pacote Excel (.xlsx)</h3>
+     <div class="fileline"><input type="file" id="fileBundle" accept=".xlsx,.xls">
+       <span class="pill">Equipamentos · Locais · IW39 · IW29 · MB24</span>
+       <button id="importBundle">Carregar pacote único</button></div>
+    </div>
+    <div>
+     <h3>Restaurar JSON de sessão</h3>
+     <div class="fileline"><input type="file" id="fileSession" accept=".json,application/json">
+       <span class="pill">Restabelece bases e filtros</span>
+       <button id="importSession">Restaurar sessão</button></div>
+    </div>
+  </div>
+  <div class="notice warning">Atenção: o JSON e o Excel enriquecido contêm dados reais e identificadores da empresa. Salve-os somente em local corporativo autorizado; não publique no GitHub ou Pages. Fechar a aba sem exportar não preserva a sessão.</div>
  </div>
  <div class="summary" id="datasetMetrics"></div>
  <div class="panel">
@@ -165,12 +191,48 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
   <p class="help"><strong>Intervalo calendário entre trocas:</strong> diferença de dias entre duas substituições comparáveis do mesmo item, lado e ativo. <strong>Vida operacional em horas:</strong> diferença entre horímetros registrados nas intervenções, não estimável apenas com IW39/MB24 sem histórico de medidores.</p></div>
   <div class="panel"><h3>Limitações explícitas</h3><p class="help">Data-base, abertura da ordem, fechamento e reserva são marcos diferentes. Ordens sem registro de execução permanecem como candidatas; componentes individuais não podem ser misturados com conjuntos completos; alterações de equipamento dentro de local funcional exigem histórico de instalação para conciliação definitiva.</p></div></div>
 </section>
+
+<section id="ciclo" class="view">
+ <div class="panel">
+  <div class="split"><div><div class="headline">Relatório especial 02</div>
+   <h2>Ciclo de vida das esteiras — cada máquina, lado e ordem SAP</h2>
+   <p class="help">Conciliação simultânea dos equipamentos, locais de instalação, ordens, notas e reservas. A coluna <strong>Ordem da troca</strong> preserva o número exato da OS; materiais e datas utilizadas ficam nas trilhas de auditoria.</p></div>
+   <button id="exportLifecycle" class="primary">Exportar relatório completo</button></div>
+  <div class="toolbar">
+   <input id="lifeAssetFilter" placeholder="Filtrar TAG, modelo ou equipamento">
+   <label>Data de corte <input type="date" id="lifeAsOf"></label>
+   <label style="display:flex;gap:7px;align-items:center"><input type="checkbox" id="lifeAllowWeak"> Incluir trocas de evidência fraca</label>
+  </div>
+  <div class="summary" id="lifeMetrics"></div>
+  <div id="lifeInfo" class="notice"></div>
+ </div>
+ <div class="panel">
+   <h3>Visão por equipamento — inclusive máquinas com uma ou nenhuma troca identificada</h3>
+   <p class="muted">A quantidade de ordens distintas não é duplicada quando os dois lados foram substituídos na mesma OS.</p>
+   <div class="tablewrap"><table id="lifeEquipmentTable"></table></div>
+ </div>
+ <div class="panel">
+   <h3>Ciclo individual e ordem exata da substituição</h3>
+   <p class="muted">O primeiro ciclo utiliza entrada em serviço quando disponível; caso contrário, a aquisição é identificada como aproximação. Para ciclos posteriores, usa-se a OS da substituição anterior como marco. Todas as datas são referências e não comprovam execução.</p>
+   <div class="tablewrap"><table id="lifeCyclesTable"></table></div>
+ </div>
+ <div class="panel">
+   <h3>Ordens auditadas e justificativas — não perder falsos positivos ou pendências</h3>
+   <div class="tablewrap"><table id="lifeAuditTable"></table></div>
+ </div>
+ <div class="panel">
+   <h3>Materiais reservados vinculados às ordens</h3>
+   <div class="tablewrap"><table id="lifeMaterialsTable"></table></div>
+   <h3 style="margin-top:18px">Ciclos ainda em aberto (censurados)</h3>
+   <div class="tablewrap"><table id="lifeOpenTable"></table></div>
+ </div>
+</section>
 </main>
 <footer>Projeto aberto, sem dados de empresa embarcados · Processamento em memória, sem cookies, analytics ou armazenamento persistente · Uso técnico sujeito à validação do histórico SAP.</footer>
 <script type="module">
-import {ROLES,detectRole,createModel,analyzeRodante,enrichRows,exportMaterials,key,isoDate} from "./src/engine.js";
+import {ROLES,detectRole,createModel,analyzeRodante,analyzeLifecycle,serializeSession,restoreSession,enrichRows,exportMaterials,key,isoDate} from "./src/engine.js";
 
-const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null};
+const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null,lifecycle:null};
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function log(v){$("log").textContent=String(new Date().toLocaleTimeString("pt-BR"))+"  "+v+"\n"+$("log").textContent.slice(0,5500);}
