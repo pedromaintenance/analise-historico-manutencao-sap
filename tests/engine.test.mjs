@@ -21,8 +21,8 @@ test("preserva uma importação de apenas IW29",()=>{
  assert.ok(m.dictionaries.some(x=>x.dimension==="Técnico / Notificador"));
 });
 test("concilia por equipamento prioritariamente e por local quando único",()=>{
- const m=createModel({equipment,orders:[ord("OS-1","2026-01-01","TROCA ESTEIRA") ,
-  {Ordem:"OS-2","Tipo de ordem":"PM01","Local de instalação":"PLANT-DRT0222-UNCR",
+ const m=createModel({equipment,locations:[{"Local de instalação":"PLANT-TECH-0222","Campo de ordenação":"010-222","Tipo de objeto":"TECH"}],orders:[ord("OS-1","2026-01-01","TROCA ESTEIRA") ,
+  {Ordem:"OS-2","Tipo de ordem":"PM01","Local de instalação":"PLANT-TECH-0222-UNCR",
    "Texto breve":"SUBSTITUIR ROLETE","Status do sistema":"ENTE"}]});
  assert.equal(m.orders[0].identity.id,"EQ:EQ-001");
  assert.equal(m.orders[1].identity.id,"EQ:EQ-002");
