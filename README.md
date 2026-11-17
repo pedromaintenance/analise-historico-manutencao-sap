@@ -27,3 +27,11 @@ O workflow `.github/workflows/pages.yml` executa os testes sintéticos e publica
 **Ativação inicial pelo proprietário do repositório:** abra `Settings → Pages → Build and deployment → Source: GitHub Actions`. Depois acompanhe `Actions → Publicar aplicativo no GitHub Pages` ou execute `Run workflow`. Não é necessário fazer upload de bancos de dados ao GitHub.
 
 **Segurança:** a versão web ainda usa a biblioteca XLSX externa informada em `SECURITY.md`; o carregamento de arquivos é local, mas, até aprovar/empacotar a dependência JS, não use planilhas classificadas como sigilosas em contexto conectado à rede sem autorização da TI.
+
+## Relatório especial 01 — versão com cronologia e custos
+
+A aba **Ordens & rodante** agora associa os custos previstos e reais da IW39 às ordens candidatas e mostra materiais MB24 por ordem. A classificação separa troca de conjunto, troca mista, reparo parcial, montagem, ajuste e inspeção.
+
+A referência temporal padrão é **Data-base de início → Fim da avaria (IW29) → Data de Entrada (IW39)**. Cada fonte é identificada na exportação. A Data-base é **planejamento**, não comprovação de execução; ordens futuras e ordens sem lado conhecido não criam pares de substituição.
+
+O relatório exportado contém abas independentes: resumo de vida, intervalos, eventos, custos por classe, custos por ordem, materiais por OS e triagem de candidatas. Custos da ordem podem incluir mais que material rodante, e uma reserva MB24 não comprova consumo. Veja a metodologia completa em `docs/METODOLOGIA.md`.
