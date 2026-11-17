@@ -9,7 +9,7 @@
 
 ## Identidade do ativo
 1. Se existe equipamento explícito, usar equipamento.
-2. Se existe apenas local específico, tentar resolução da hierarquia por TAG, somente se a chave apontar para um único equipamento cadastrado. Classificar como confiança média.
+2. Se existe apenas local específico, percorrer o próprio local e os locais-pai até localizar o **Campo de ordenação**, extraindo a TAG fornecida pela planilha. Relacionar a TAG à denominação/identificador do equipamento apenas se for única. Classificar como confiança média. Não codificar regras da hierarquia de uma empresa no código público.
 3. Sem vínculo seguro, manter local como entidade autônoma. Nunca supor que o mesmo local genérico de oficina indica a mesma máquina.
 4. Para auditoria histórica definitiva, necessitamos das datas de montagem/desmontagem e transferências Equipamento ↔ Local.
 
@@ -30,3 +30,6 @@ Vida em horas exige horímetro registrado na substituição A e na substituiçã
 
 ## Limitações e backlog
 Perfis de status por implantação SAP; cadastros de locação histórica, apropriação MB51, textos longos/operacionais, medidores, revisões manuais de evento, gráfico de sobrevivência com censura e estratificação por severidade operacional ainda exigem evolução.
+
+## Regra de conclusão configurável
+Os status indicativos de conclusão e de cancelamento são editáveis na interface. Os valores iniciais são sugestões de trabalho e não uma definição universal do SAP. A execução só é considerada datada quando também houver data real coerente; os estados devem ser validados contra a transação/configuração e o procedimento local.
