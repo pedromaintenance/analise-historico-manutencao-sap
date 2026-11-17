@@ -17,3 +17,13 @@ Para executar testes sintéticos (Node.js 20+): `npm test`. Para regenerar o HTM
 A biblioteca de leitura XLSX é obtida do CDN ao abrir o HTML; uma conexão é necessária para XLSX. O código próprio não envia planilhas ao CDN, mas uma biblioteca externa executada no navegador pode ter acesso aos dados: **para conteúdo confidencial, submeter a dependência à revisão de TI ou usá-la instalada localmente e auditada**. CSV funciona offline, sem dependência. Nunca publique exportações reais.
 
 Consulte `SECURITY.md` e `docs/METODOLOGIA.md` antes de interpretar médias de consumo.
+
+## Publicação no GitHub Pages
+
+O workflow `.github/workflows/pages.yml` executa os testes sintéticos e publica **somente** `index.html` e `src/engine.js` (sem nenhuma base corporativa). A URL esperada após ativação é:
+
+`https://pedromaintenance.github.io/analise-historico-manutencao-sap/`
+
+**Ativação inicial pelo proprietário do repositório:** abra `Settings → Pages → Build and deployment → Source: GitHub Actions`. Depois acompanhe `Actions → Publicar aplicativo no GitHub Pages` ou execute `Run workflow`. Não é necessário fazer upload de bancos de dados ao GitHub.
+
+**Segurança:** a versão web ainda usa a biblioteca XLSX externa informada em `SECURITY.md`; o carregamento de arquivos é local, mas, até aprovar/empacotar a dependência JS, não use planilhas classificadas como sigilosas em contexto conectado à rede sem autorização da TI.
