@@ -312,7 +312,7 @@ function renderRodante(){
  $("rodanteWarning").textContent=(allowProxy
    ?"CRONOLOGIA EXPLORATÓRIA: utiliza Data-base de início prioritariamente; na ausência dela, Fim da avaria e então Data de Entrada. Isso não equivale à data real de execução."
    :"MODO DATA REAL: sem data de execução preenchida, não será calculado intervalo. As tabelas financeiras continuam disponíveis.")
-  +" Ordens com lado não informado: "+num(r.missingSide)+" (não entram em intervalos). Ordens sem reserva nesta MB24: "+num(r.withoutReservation)+"."
+  +" Ordens com lado não informado: "+num(r.missingSide)+" (não entram em intervalos). Datas-base futuras: "+num(r.futureDated)+" (não entram em eventos). Ordens sem reserva nesta MB24: "+num(r.withoutReservation)+"."
   +(r.mixingComponents?" Não misturamos médias de componentes diferentes.":"");
  const maxMean=Math.max(1,...r.summary.map(x=>x.meanDays));
  $("lifeChart").innerHTML=r.summary.length?r.summary.slice(0,16).map(x=>"<div style=\"display:grid;grid-template-columns:minmax(150px,1fr) 2fr auto;gap:12px;align-items:center;margin:9px 0\"><span class=\"muted\">"+esc(x.asset)+" · "+esc(x.side)+"</span><div class=\"bar\"><i style=\"width:"+Math.round(100*x.meanDays/maxMean)+"%\"></i></div><strong>"+esc(fmtDays(x.meanDays))+"</strong></div>").join(""):"<p class=\"muted\">Ainda não há pares comparáveis: confira tipo de troca, lado, status e datas de referência.</p>";
