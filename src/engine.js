@@ -30,6 +30,13 @@ const fields = {
   notifier: ["Notificador", "Técnico", "Tecnico"],
   orderType: ["Tipo de ordem"], noteType: ["Tipo de nota"],
   plannedDate: ["Data-base do início", "Data base do inicio", "Início programado"],
+  plannedEnd: ["Data-base do fim", "Data base do fim"],
+  entryDate: ["Data de entrada", "Data entrada"],
+  breakdownEnd: ["Fim da avaria", "Fim avaria"],
+  breakdownStart: ["Início da avaria", "Inicio da avaria"],
+  costReal: ["Custos tot.reais", "Custos totais reais"],
+  costPlanned: ["Custos totais plan.", "Custos totais planejados"],
+  unit: ["Unid.medida básica","Unidade medida básica","Unidade de medida","UM"],
   actualStart: ["Dta.início real", "Data de início real", "Inicio real da ordem"],
   actualEnd: ["Data fim real da ordem", "Data fim real", "Fim real"],
   closedDate: ["Data de conclusão", "Data de conclusao"],
@@ -94,12 +101,15 @@ export function normalizeRows(role, rows) {
     if (role === "orders") return {...common,
       id: pick(m,"id"), note: pick(m,"note"), description: pick(m,"description"),
       type: pick(m,"orderType"), plannedDate: pick(m,"plannedDate"),
+      plannedEnd: pick(m,"plannedEnd"), entryDate:pick(m,"entryDate"),
+      costReal:pick(m,"costReal"),costPlanned:pick(m,"costPlanned"),
       actualStart: pick(m,"actualStart"), actualEnd: pick(m,"actualEnd"),
       closedDate: pick(m,"closedDate"), materialText: pick(m,"materialText") };
     if (role === "notes") return {...common,
       id: pick(m,"note"), order: pick(m,"id"), description: pick(m,"description"),
       type: pick(m,"noteType"), notifier: pick(m,"notifier"),
-      damage: pick(m,"damage"), code: pick(m,"code") };
+      damage: pick(m,"damage"), code: pick(m,"code"),
+      breakdownStart: pick(m,"breakdownStart"),breakdownEnd:pick(m,"breakdownEnd") };
     if (role === "equipment") return {...common,
       id: pick(m,"equipment"), model: pick(m,"model"),
       manufacturer: pick(m,"manufacturer"), inventory: pick(m,"inventory"),
@@ -107,31 +117,48 @@ export function normalizeRows(role, rows) {
     if (role === "locations") return {...common,
       id: pick(m,"fl"), type: pick(m,"typeObject"), category: pick(m,"category"),sortKey:pick(m,"sortKey") };
     return {...common, id: pick(m,"reservation"), order: pick(m,"id"),
-      material: pick(m,"material"), description: pick(m,"materialText"),
+      material: pick(m,"material"), description: pick(m,"materialText"), unit:pick(m,"unit"),
       qty: pick(m,"qty"), qtyPosted: pick(m,"qtyPosted"), qtyDiff: pick(m,"qtyDiff"),
       finalFlag: pick(m,"finalFlag"), deletedFlag: pick(m,"deletedFlag"),
       needDate: pick(m,"needDate")};
   });
 }
 export function asDate(value) {
-  if (value instanceof Date && !isNaN(value.getTime())) return new Date(Date.UTC(value.getUTCFullYear(),value.getUTCMonth(),value.getUTCDate()));
-  const s = text(value); if (!s || s === "0") return null;
-  if (/^\d{5}(?:\.\d+)?$/.test(s)) {
-    const n = Number(s);
-    if (n < 20000 || n > 100000) return null;
-    return new Date(Date.UTC(1899,11,30) + Math.floor(n)*86400000);
+  if(value instanceof Date && !isNaN(value.getTime()))
+    return new Date(Date.UTC(value.getFullYear(),value.getMonth(),value.getDate()));
+  const s=text(value);if(!s||s==="0")return null;
+  if(/^\d{5}(?:\.\d+)?$/.test(s)){
+    const n=Number(s);if(n<20000||n>100000)return null;
+    return new Date(Date.UTC(1899,11,30)+Math.floor(n)*86400000);
   }
-  let m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (m) return checkedDate(+m[1],+m[2],+m[3]);
-  m = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
-  if (m) return checkedDate(+m[3],+m[2],+m[1]);
+  let m=s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if(m)return checkedDate(+m[1],+m[2],+m[3]);
+  m=s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if(m)return checkedDate(+m[3]<100?2000+Number(m[3]):+m[3],+m[2],+m[1]);
   return null;
 }
 function checkedDate(y,m,d) {
-  const v = new Date(Date.UTC(y,m-1,d));
-  return v.getUTCFullYear()===y && v.getUTCMonth()===m-1 && v.getUTCDate()===d?v:null;
+  const v=new Date(Date.UTC(y,m-1,d));
+  return v.getUTCFullYear()===y&&v.getUTCMonth()===m-1&&v.getUTCDate()===d?v:null;
 }
-export function isoDate(v) { const d=asDate(v); return d?d.toISOString().slice(0,10):""; }
+export function isoDate(v) {const d=asDate(v);return d?d.toISOString().slice(0,10):"";}
+export function parseNumber(v) {
+  if(typeof v==="number")return Number.isFinite(v)?v:0;
+  const s=text(v).replace(/\s/g,"");if(!s)return 0;
+  if(s.includes(",")&&s.includes("."))return Number(s.lastIndexOf(",")>s.lastIndexOf(".")?s.replace(/\./g,"").replace(",","."):s.replace(/,/g,""))||0;
+  if(s.includes(","))return Number(s.replace(",","."))||0;
+  return Number(s)||0;
+}
+export function chronology(order) {
+  const dateBase=isoDate(order.plannedDate);
+  const faultEnd=isoDate(order.breakdownEnd)||
+    (order.notes||[]).map(n=>isoDate(n.breakdownEnd)).find(Boolean)||"";
+  const entry=isoDate(order.entryDate)||isoDate(order.createdDate)||isoDate(order.noteDate)||"";
+  const actual=isoDate(order.actualEnd)||isoDate(order.actualStart)||"";
+  const reference=dateBase||faultEnd||entry||"";
+  const source=dateBase?"Data-base do início":faultEnd?"Fim da avaria":entry?"Data de Entrada":"sem data";
+  return {dateBase,faultEnd,entry,actual,reference,source,hasTimeline:Boolean(reference)};
+}
 export function machineTag(desc) {
   const m = text(desc).match(/\b\d{3}[- ]\d{3}\b/);
   return m ? m[0].replace(" ","-") : "";
@@ -152,12 +179,17 @@ export function createModel(bases) {
   }
   for (const fl of norm.locations) if (fl.id) byFL.set(fl.id,fl);
   for (const item of norm.reservations) {
-    if (!item.material) continue;
-    if (!materials.has(item.material)) materials.set(item.material,{material:item.material,description:item.description,rows:0,orders:new Set(),qty:0});
-    const mat=materials.get(item.material);
-    mat.rows++; if(item.order)mat.orders.add(item.order);
-    mat.qty+=Number(text(item.qty).replace(",", "."))||0;
-    if(!mat.description && item.description) mat.description=item.description;
+    // Material sem código SAP também representa demanda; respeitar unidade de medida.
+    const materialKey=item.material?"COD:"+item.material+"|"+item.unit:
+      "SEM_COD:"+key(item.description||"SEM DESCRICAO")+"|"+item.unit;
+    if(!materials.has(materialKey))materials.set(materialKey,{
+      material:item.material,description:item.description,unit:item.unit,
+      uncoded:!item.material,rows:0,orders:new Set(),qty:0
+    });
+    const mat=materials.get(materialKey);
+    mat.rows++;if(item.order)mat.orders.add(item.order);
+    mat.qty+=parseNumber(item.qty);
+    if(!mat.description && item.description)mat.description=item.description;
   }
   const noteByOrder = new Map(), reservesByOrder = new Map();
   for (const n of norm.notes) if (n.order) {
@@ -174,7 +206,7 @@ export function createModel(bases) {
     if (!byOrder.has(o.id)) byOrder.set(o.id,{...o,duplicateRows:1});
     else {
       const current=byOrder.get(o.id); current.duplicateRows++;
-      for (const name of ["equipment","fl","object","flLabel","sys","usr","description","actualStart","actualEnd","closedDate","plannedDate"])
+      for (const name of ["equipment","fl","object","flLabel","sys","usr","description","actualStart","actualEnd","closedDate","plannedDate","plannedEnd","entryDate","costReal","costPlanned"])
         if (!current[name] && o[name]) current[name]=o[name];
     }
   }
@@ -190,7 +222,9 @@ export function createModel(bases) {
       description:o.description||(n?.description||""), notifier:n?.notifier||"",
       materialCount:linkedMaterials.length,
       materialCodes:[...new Set(linkedMaterials.map(r=>r.material).filter(Boolean))],
-      noteDescription:n?.description||""});
+      noteDescription:n?.description||"",
+      breakdownEnd:n?.breakdownEnd||"",breakdownStart:n?.breakdownStart||"",
+      noteDate:n?.createdDate||""});
   }
   const stats=buildDictionaries(norm,byEquip,byFL);
   return {norm, counts, byEquip, byFL, byTag, materials, orders, dictionaries:stats,
@@ -245,7 +279,8 @@ const dictionaryFields=[
   ["Tipo de ordem / nota","type"],["Centro de trabalho","workCenter"],
   ["Grupo planejador","planner"],["Centro de custo","costCenter"],
   ["Modelo","model"],["Fabricante","manufacturer"],["Categoria","category"],["Campo de ordenação","sortKey"],
-  ["Código de catálogo","code"],["Material","material","description"]
+  ["Código de catálogo","code"],["Material","material","description"],
+  ["Unidade de medida","unit"]
 ];
 export function buildDictionaries(norm,byEquip,byFL) {
   const index=new Map();
@@ -411,8 +446,11 @@ export function enrichRows(model,role) {
   });
 }
 export function exportMaterials(model) {
-  return [...model.materials.values()].map(m=>({Material:m.material,Descrição:m.description,
+  return [...model.materials.values()].map(m=>({
+    Material:m.material||"SEM CÓDIGO SAP",Descrição:m.description,UM:m.unit,
+    "Sem cadastro":m.uncoded?"SIM":"NÃO",
     "Linhas MB24":m.rows,"Ordens distintas":m.orders.size,
-    "Quantidade solicitada (heterogênea: verificar UM)":m.qty,
-    "Natureza":"Reserva / necessidade — não comprova saída física"}));
+    "Quantidade solicitada (por unidade)":m.qty,
+    "Natureza":"Reserva / necessidade — não comprova saída física"
+  }));
 }
