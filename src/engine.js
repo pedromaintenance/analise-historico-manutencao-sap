@@ -370,7 +370,7 @@ const diffDays=(a,b)=>(asDate(b).getTime()-asDate(a).getTime())/86400000;
 const mean=v=>v.length?v.reduce((a,b)=>a+b,0)/v.length:null;
 const median=v=>{if(!v.length)return null;const t=[...v].sort((a,b)=>a-b);return t.length%2?t[(t.length-1)/2]:(t[t.length/2-1]+t[t.length/2])/2;};
 export function analyzeRodante(model,{
-  allowProxy=true,component="esteira completa",assetPrefix="",
+  allowProxy=true,component="esteira completa",assetPrefix="",asOf=isoDate(new Date()),
   completionStatuses=["ENTE","ENCE"],cancellationStatuses=["NEXE","CANC"]
 }={}) {
   const candidates=[];
@@ -422,7 +422,7 @@ export function analyzeRodante(model,{
     const supported=a.closed||a.costReal>0;
     const dated=Boolean(a.reference);
     // Componente ou lado desconhecido não forma sequência de trocas comparável.
-    if(!supported||!dated||a.side==="não informado")continue;
+    if(!supported||!dated||a.side==="não informado"||(asOf&&a.reference>asOf))continue;
     if(!allowProxy&&!a.actual)continue;
     if(component==="esteira completa"&&a.operationClass!=="troca de esteira / conjunto")continue;
     if(a.operationClass==="troca mista / componentes adicionais")continue;
@@ -486,10 +486,11 @@ export function analyzeRodante(model,{
     medianDays:mixingComponents?null:median(intervals.map(x=>x.days)),
     mixingComponents,clustered,
     missingSide:eligible.filter(x=>x.analysis.side==="não informado").length,
+    futureDated:eligible.filter(x=>asOf&&x.analysis.reference>asOf).length,
     withoutCost:candidates.filter(x=>x.analysis.costReal===0).length,
     withoutReservation:candidates.filter(x=>!x.reserves.length).length,
     dataMode:allowProxy?"datas-base/avaria/entrada (proxy)":"somente data real",
-    excluded:eligible.filter(x=>!x.analysis.reference||x.analysis.side==="não informado"||
+    excluded:eligible.filter(x=>!x.analysis.reference||(asOf&&x.analysis.reference>asOf)||x.analysis.side==="não informado"||
       !(x.analysis.closed||x.analysis.costReal>0)).length};
 }
 export function enrichRows(model,role) {
