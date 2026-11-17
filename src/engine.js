@@ -606,7 +606,7 @@ export function analyzeLifecycle(model,{
       acquisition:isoDate(e.acquisitionDate),commissioned:isoDate(e.serviceStart),
       equipment:e.id});
   }
-  const audit=[],valid=[];
+  const audit=[],valid=[],materialDetails=[];
   for(const o of model.orders){
     const a=classifyRodante(o,{completionStatuses,cancellationStatuses});
     if(!a.component)continue;
@@ -636,6 +636,14 @@ export function analyzeLifecycle(model,{
     else if(!statusReliable&&!allowWeak)reason="Evidência insuficiente (conferir OS e baixa)";
     else if(a.side==="não informado")reason="Troca candidata, lado não informado";
     else reason="Elegível para reconstrução de ciclo";
+    for(const res of reserveList)materialDetails.push({
+      equipment:e?.id||"",asset:label,order:o.id,
+      dateReference:a.reference,side:a.side,operationClass:a.operationClass,
+      reservation:res.reservation,material:res.material||"SEM CÓDIGO",
+      description:res.description,required:res.qty,unit:res.unit,
+      deleted:res.deleted,finalFlag:res.finalFlag,
+      warning:"Reserva não comprova movimento de estoque ou montagem"
+    });
     const record={
       equipment:e?.id||"",objectId:id,asset:label,tag:machines.get(id).tag,
       family:machines.get(id).family,
@@ -745,7 +753,7 @@ export function analyzeLifecycle(model,{
   cycles.sort((a,b)=>a.family.localeCompare(b.family,"pt-BR")||a.asset.localeCompare(b.asset,"pt-BR")||
     a.side.localeCompare(b.side,"pt-BR")||a.sequence-b.sequence);
   audit.sort((a,b)=>a.asset.localeCompare(b.asset,"pt-BR")||a.dateReference.localeCompare(b.dateReference)||a.order.localeCompare(b.order));
-  return {equipmentSummary,cycles,audit,openCycles:timeline,
+  return {equipmentSummary,cycles,audit,materialDetails,openCycles:timeline,
     metrics:{trackedEquipment:machines.size,ordersAudited:audit.length,
       approvedOrders:new Set(valid.map(x=>x.order)).size,
       closedIntervals:cycles.filter(x=>x.cycleType==="Troca subsequente"&&x.days!=="").length,
