@@ -60,6 +60,7 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
     <button class="active" data-tab="cadastros">01 · Cadastros técnicos</button>
     <button data-tab="materiais">02 · Materiais & MB24</button>
     <button data-tab="historico">03 · Ordens & rodante</button>
+    <button data-tab="ciclo">04 · Ciclo de vida</button>
   </nav>
 </div></header>
 <main class="container">
@@ -73,6 +74,31 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
      <option value="equipment">Equipamentos</option><option value="locations">Locais de instalação</option>
      <option value="orders">IW39 / Ordens</option><option value="notes">IW29 / Notas</option></select>
     <button class="primary" id="btnCatalog">Importar planilhas</button></div>
+ </div>
+ <div class="panel" id="sessionManager">
+  <div class="headline">Trabalho contínuo · sem repetir as cinco cargas</div>
+  <h2>Pacote enriquecido e sessão portátil</h2>
+  <p class="help">Depois da primeira importação, salve um pacote Excel com todas as bases e/ou um JSON de sessão. Ao voltar, basta importar <strong>um único arquivo</strong> para restaurar o contexto e calcular diretamente. Nada é enviado ao GitHub.</p>
+  <div class="toolbar">
+    <button id="exportBundle" class="primary">Exportar pacote Excel completo</button>
+    <button id="exportSession">Exportar sessão JSON</button>
+    <button id="exportLifeQuick">Exportar ciclo de vida</button>
+  </div>
+  <div class="grid cols2">
+    <div>
+     <h3>Reabrir pacote Excel (.xlsx)</h3>
+     <div class="fileline"><input type="file" id="fileBundle" accept=".xlsx,.xls">
+       <span class="pill">Equipamentos · Locais · IW39 · IW29 · MB24</span>
+       <button id="importBundle">Carregar pacote único</button></div>
+    </div>
+    <div>
+     <h3>Restaurar JSON de sessão</h3>
+     <div class="fileline"><input type="file" id="fileSession" accept=".json,application/json">
+       <span class="pill">Restabelece bases e filtros</span>
+       <button id="importSession">Restaurar sessão</button></div>
+    </div>
+  </div>
+  <div class="notice warning">Atenção: o JSON e o Excel enriquecido contêm dados reais e identificadores da empresa. Salve-os somente em local corporativo autorizado; não publique no GitHub ou Pages. Fechar a aba sem exportar não preserva a sessão.</div>
  </div>
  <div class="summary" id="datasetMetrics"></div>
  <div class="panel">
@@ -164,6 +190,42 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
  <div class="grid cols2"><div class="panel"><h3>Definição correta de indicadores</h3>
   <p class="help"><strong>Intervalo calendário entre trocas:</strong> diferença de dias entre duas substituições comparáveis do mesmo item, lado e ativo. <strong>Vida operacional em horas:</strong> diferença entre horímetros registrados nas intervenções, não estimável apenas com IW39/MB24 sem histórico de medidores.</p></div>
   <div class="panel"><h3>Limitações explícitas</h3><p class="help">Data-base, abertura da ordem, fechamento e reserva são marcos diferentes. Ordens sem registro de execução permanecem como candidatas; componentes individuais não podem ser misturados com conjuntos completos; alterações de equipamento dentro de local funcional exigem histórico de instalação para conciliação definitiva.</p></div></div>
+</section>
+
+<section id="ciclo" class="view">
+ <div class="panel">
+  <div class="split"><div><div class="headline">Relatório especial 02</div>
+   <h2>Ciclo de vida das esteiras — cada máquina, lado e ordem SAP</h2>
+   <p class="help">Conciliação simultânea dos equipamentos, locais de instalação, ordens, notas e reservas. A coluna <strong>Ordem da troca</strong> preserva o número exato da OS; materiais e datas utilizadas ficam nas trilhas de auditoria.</p></div>
+   <button id="exportLifecycle" class="primary">Exportar relatório completo</button></div>
+  <div class="toolbar">
+   <input id="lifeAssetFilter" placeholder="Filtrar TAG, modelo ou equipamento">
+   <label>Data de corte <input type="date" id="lifeAsOf"></label>
+   <label style="display:flex;gap:7px;align-items:center"><input type="checkbox" id="lifeAllowWeak"> Incluir trocas de evidência fraca</label>
+  </div>
+  <div class="summary" id="lifeMetrics"></div>
+  <div id="lifeInfo" class="notice"></div>
+ </div>
+ <div class="panel">
+   <h3>Visão por equipamento — inclusive máquinas com uma ou nenhuma troca identificada</h3>
+   <p class="muted">A quantidade de ordens distintas não é duplicada quando os dois lados foram substituídos na mesma OS.</p>
+   <div class="tablewrap"><table id="lifeEquipmentTable"></table></div>
+ </div>
+ <div class="panel">
+   <h3>Ciclo individual e ordem exata da substituição</h3>
+   <p class="muted">O primeiro ciclo utiliza entrada em serviço quando disponível; caso contrário, a aquisição é identificada como aproximação. Para ciclos posteriores, usa-se a OS da substituição anterior como marco. Todas as datas são referências e não comprovam execução.</p>
+   <div class="tablewrap"><table id="lifeCyclesTable"></table></div>
+ </div>
+ <div class="panel">
+   <h3>Ordens auditadas e justificativas — não perder falsos positivos ou pendências</h3>
+   <div class="tablewrap"><table id="lifeAuditTable"></table></div>
+ </div>
+ <div class="panel">
+   <h3>Materiais reservados vinculados às ordens</h3>
+   <div class="tablewrap"><table id="lifeMaterialsTable"></table></div>
+   <h3 style="margin-top:18px">Ciclos ainda em aberto (censurados)</h3>
+   <div class="tablewrap"><table id="lifeOpenTable"></table></div>
+ </div>
 </section>
 </main>
 <footer>Projeto aberto, sem dados de empresa embarcados · Processamento em memória, sem cookies, analytics ou armazenamento persistente · Uso técnico sujeito à validação do histórico SAP.</footer>
@@ -333,8 +395,12 @@ function chronology(order) {
   return {dateBase,faultEnd,entry,actual,reference,source,hasTimeline:Boolean(reference)};
 }
 function machineTag(desc) {
-  const m = text(desc).match(/\b\d{3}[- ]\d{3}\b/);
-  return m ? m[0].replace(" ","-") : "";
+  const name=text(desc);
+  // A TAG 021-004 tem prioridade sobre o modelo "395" imediatamente anterior.
+  const exact=[...name.matchAll(/\b\d{3}-\d{3}\b/g)].at(-1);
+  if(exact)return exact[0];
+  const spaced=[...name.matchAll(/\b\d{3}\s+\d{3}\b/g)].at(-1);
+  return spaced?spaced[0].replace(/\s+/g,"-"):"";
 }
 function createModel(bases) {
   const norm = {};
@@ -364,7 +430,8 @@ function createModel(bases) {
     mat.qty+=parseNumber(item.qty);
     if(!mat.description && item.description)mat.description=item.description;
   }
-  const noteByOrder = new Map(), reservesByOrder = new Map();
+  const noteByOrder = new Map(), notesById=new Map(), reservesByOrder = new Map();
+  for(const n of norm.notes)if(n.id)notesById.set(n.id,n);
   for (const n of norm.notes) if (n.order) {
     if(!noteByOrder.has(n.order)) noteByOrder.set(n.order,[]);
     noteByOrder.get(n.order).push(n);
@@ -386,6 +453,12 @@ function createModel(bases) {
   const orders=[];
   for (const o of byOrder.values()) {
     const linkedNotes=noteByOrder.get(o.id)||[];
+    // Algumas exportações IW29 não trazem Ordem preenchida.
+    // Conciliar pelo número da Nota informada na IW39, sem duplicar.
+    if(o.note){
+      const byId=notesById.get(o.note);
+      if(byId&&!linkedNotes.some(n=>n.id===byId.id))linkedNotes.push(byId);
+    }
     const linkedMaterials=reservesByOrder.get(o.id)||[];
     const n=linkedNotes[0]||null;
     const eq=o.equipment||(n?.equipment||"");
@@ -740,7 +813,215 @@ function exportMaterials(model) {
   }));
 }
 
-const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null};
+
+/**
+ * Ciclo de vida por ativo e lado, incluindo primeira troca observada.
+ * As referências temporais da IW39 não se tornam datas de execução comprovadas.
+ * Nenhum dado corporativo faz parte deste módulo.
+ */
+function analyzeLifecycle(model,{
+  allowWeak=false,asOf=isoDate(new Date()),
+  completionStatuses=["ENTE","ENCE"],cancellationStatuses=["NEXE","CANC"],
+  assetFilter=""
+}={}) {
+  const categoryOf=(name)=>{
+    const n=key(name);
+    if(/TRATOR\s+DE\s+ESTEIRAS|BULLDOZER|\bDOZER\b|\bCAT\s+D[0-9]\b/.test(n))return "Tratores de esteiras";
+    if(/ESCAVADEIRA|EXCAVATOR|SHOVEL/.test(n))return "Escavadeiras";
+    if(/PERFURATRIZ|DRILL|DR410|DI650/.test(n))return "Perfuratrizes";
+    return "Outros / verificar";
+  };
+  const isTracked=(name)=>categoryOf(name)!=="Outros / verificar";
+  const machines=new Map();
+  for(const e of model.norm.equipment){
+    if(!e.id||!isTracked(e.object+" "+e.model))continue;
+    if(assetFilter&&!key(e.object+" "+e.id).includes(key(assetFilter)))continue;
+    machines.set("EQ:"+e.id,{id:"EQ:"+e.id,name:e.object||e.id,
+      tag:machineTag(e.object)||machineTag(e.inventory),family:categoryOf(e.object+" "+e.model),
+      acquisition:isoDate(e.acquisitionDate),commissioned:isoDate(e.serviceStart),
+      equipment:e.id});
+  }
+  const audit=[],valid=[],materialDetails=[];
+  for(const o of model.orders){
+    const a=classifyRodante(o,{completionStatuses,cancellationStatuses});
+    if(!a.component)continue;
+    const id=o.identity.id;
+    const e=id.startsWith("EQ:")?model.byEquip.get(id.slice(3)):null;
+    const label=e?.object||o.identity.label;
+    if(assetFilter&&!key(label+" "+id).includes(key(assetFilter)))continue;
+    const tracked=isTracked(label+" "+(e?.model||""));
+    if(!tracked&&!machines.has(id))continue;
+    if(!machines.has(id))machines.set(id,{id,name:label,
+      tag:o.identity.tag||machineTag(label),
+      family:categoryOf(label+" "+(e?.model||"")),acquisition:isoDate(e?.acquisitionDate),
+      commissioned:isoDate(e?.serviceStart),equipment:e?.id||""});
+    const reserveList=o.reserves.map(x=>({
+      reservation:x.id,material:x.material||"",description:x.description||"",
+      qty:x.qty,unit:x.unit,deleted:x.deletedFlag,finalFlag:x.finalFlag
+    }));
+    const isWhole=a.operationClass==="troca de esteira / conjunto";
+    const statusReliable=a.eventStrong;
+    const accepted=isWhole&&a.isCandidate&&a.reference&&(!asOf||a.reference<=asOf)
+      &&!a.cancelled&&(statusReliable||allowWeak);
+    let reason="";
+    if(!isWhole)reason="O serviço não é troca completa da esteira";
+    else if(a.cancelled)reason="Status de cancelamento";
+    else if(!a.reference)reason="Sem referência cronológica";
+    else if(asOf&&a.reference>asOf)reason="Intervenção com data futura";
+    else if(!statusReliable&&!allowWeak)reason="Evidência insuficiente (conferir OS e baixa)";
+    else if(a.side==="não informado")reason="Troca candidata, lado não informado";
+    else reason="Elegível para reconstrução de ciclo";
+    for(const res of reserveList)materialDetails.push({
+      equipment:e?.id||"",asset:label,order:o.id,
+      dateReference:a.reference,side:a.side,operationClass:a.operationClass,
+      reservation:res.reservation,material:res.material||"SEM CÓDIGO",
+      description:res.description,required:res.qty,unit:res.unit,
+      deleted:res.deleted,finalFlag:res.finalFlag,
+      warning:"Reserva não comprova movimento de estoque ou montagem"
+    });
+    const record={
+      equipment:e?.id||"",objectId:id,asset:label,tag:machines.get(id).tag,
+      family:machines.get(id).family,
+      order:o.id,notes:(o.notes||[]).map(x=>x.id).filter(Boolean).join("; "),
+      description:o.description,side:a.side,component:a.component,
+      operationClass:a.operationClass,status:o.sys,evidence:a.evidenceLevel,
+      accepted:accepted?"SIM":"NÃO",reason,
+      dateBase:a.dateBase,faultEnd:a.faultEnd,entry:a.entry,
+      dateReference:a.reference,referenceSource:a.source,
+      costReal:a.costReal,costPlanned:a.costPlanned,
+      reserveCount:reserveList.length,
+      reservedMaterials:reserveList.map(x=>x.material||("SEM COD: "+x.description)).join("; ")
+    };
+    audit.push(record);
+    if(accepted){
+      if(a.side==="ambos"){
+        valid.push({...record,side:"direito",originSide:"ambos"});
+        valid.push({...record,side:"esquerdo",originSide:"ambos"});
+      }else if(a.side!=="não informado"){
+        valid.push({...record,originSide:a.side});
+      }
+    }
+  }
+
+  const groups=new Map();
+  for(const x of valid){
+    const id=x.objectId+"|"+x.side;
+    if(!groups.has(id))groups.set(id,[]);
+    groups.get(id).push(x);
+  }
+  const cycles=[],equipmentSummary=[],timeline=[];
+  const maxDate=asOf||"";
+  for(const machine of machines.values()){
+    const selected=[...groups.entries()].filter(([k])=>k.startsWith(machine.id+"|"));
+    let totalEvents=0,completed=0,initialEstimates=0;
+    let totalCost=0;const orderSet=new Set(),intervalDays=[];
+    for(const [,events] of selected){
+      events.sort((a,b)=>a.dateReference.localeCompare(b.dateReference)||a.order.localeCompare(b.order));
+      const dedup=[];
+      for(const e of events){
+        const last=dedup.at(-1);
+        if(last&&diffDays(last.dateReference,e.dateReference)<=7){
+          last.mergedOrders.push(e.order);
+          last.mergedRecords.push(e);
+          continue;
+        }
+        dedup.push({...e,mergedOrders:[e.order],mergedRecords:[e]});
+      }
+      const start=machine.commissioned||machine.acquisition;
+      const startType=machine.commissioned?"Comissionamento":machine.acquisition?"Aquisição (aproximação)":"Desconhecida";
+      for(let i=0;i<dedup.length;i++){
+        const event=dedup[i],prev=dedup[i-1];
+        const anchor=i===0?start:prev.dateReference;
+        const anchorOrder=i===0?"":prev.order;
+        const days=anchor&&event.dateReference>=anchor?diffDays(anchor,event.dateReference):null;
+        const kind=i===0?"Primeira troca observada":"Troca subsequente";
+        const quality=i===0
+          ?machine.commissioned?"Primeira vida aproximada (confirmar esteira original)"
+            :machine.acquisition?"Tempo desde aquisição (NÃO é vida confirmada)"
+            :"Sem marco inicial"
+          :"Intervalo estimado entre ordens (não horas operadas)";
+        const aggregateCost=event.mergedRecords.reduce((t,r)=>t+r.costReal,0);
+        cycles.push({
+          equipment:machine.equipment,asset:machine.name,tag:machine.tag,family:machine.family,
+          side:event.side,cycleType:kind,sequence:i+1,
+          previousOrder:anchorOrder,order:event.order,
+          groupedOrders:event.mergedOrders.join("; "),
+          begin:anchor||"",end:event.dateReference,days:days??"",
+          referenceSource:event.referenceSource,initialSource:i===0?startType:"Troca anterior",
+          confidence:event.evidence,quality,
+          costOfOrders:aggregateCost,partNumbers:event.mergedRecords.map(r=>r.reservedMaterials).filter(Boolean).join("; "),
+          materialRows:event.mergedRecords.reduce((t,r)=>t+r.reserveCount,0),
+          operationalProof:"Pendente: confirmar execução e movimento de material"
+        });
+        totalEvents++;if(i>0&&days!==null){completed++;intervalDays.push(days)}
+        if(i===0&&days!==null)initialEstimates++;
+        for(const part of event.mergedRecords)orderSet.add(part.order);
+      }
+      if(dedup.length&&maxDate&&dedup.at(-1).dateReference<=maxDate){
+        const last=dedup.at(-1);
+        timeline.push({
+          equipment:machine.equipment,asset:machine.name,family:machine.family,
+          side:last.side,lastOrder:last.order,lastDate:last.dateReference,
+          asOf:maxDate,elapsedDays:diffDays(last.dateReference,maxDate),
+          description:"Tempo desde última ordem candidata; ciclo em aberto/censurado, NÃO uma falha observada"
+        });
+      }
+    }
+    const machineAudit=audit.filter(x=>x.objectId===machine.id);
+    const acceptedAudit=machineAudit.filter(x=>x.accepted==="SIM");
+    const withoutSide=acceptedAudit.filter(x=>x.side==="não informado").length;
+    const allCandidateOrders=[...new Set(machineAudit.filter(x=>x.operationClass==="troca de esteira / conjunto").map(x=>x.order))];
+    totalCost=machineAudit.reduce((sum,x)=>sum+x.costReal,0);
+    equipmentSummary.push({
+      equipment:machine.equipment,asset:machine.name,tag:machine.tag,family:machine.family,
+      commissioning:machine.commissioned,acquisition:machine.acquisition,
+      acceptedOrders:orderSet.size,observedSides:totalEvents,
+      subsequentIntervals:completed,meanDays:intervalDays.length?mean(intervalDays):"",
+      firstLifeEstimates:initialEstimates,withoutSide,
+      candidateOrders:allCandidateOrders.join("; "),
+      acceptedOrderNumbers:[...orderSet].join("; "),
+      costOfRelatedOrders:totalCost,
+      status:totalEvents?"Com trocas candidatas":"Sem troca completa validada no recorte"
+    });
+  }
+  equipmentSummary.sort((a,b)=>a.family.localeCompare(b.family,"pt-BR")||a.asset.localeCompare(b.asset,"pt-BR"));
+  cycles.sort((a,b)=>a.family.localeCompare(b.family,"pt-BR")||a.asset.localeCompare(b.asset,"pt-BR")||
+    a.side.localeCompare(b.side,"pt-BR")||a.sequence-b.sequence);
+  audit.sort((a,b)=>a.asset.localeCompare(b.asset,"pt-BR")||a.dateReference.localeCompare(b.dateReference)||a.order.localeCompare(b.order));
+  return {equipmentSummary,cycles,audit,materialDetails,openCycles:timeline,
+    metrics:{trackedEquipment:machines.size,ordersAudited:audit.length,
+      approvedOrders:new Set(valid.map(x=>x.order)).size,
+      closedIntervals:cycles.filter(x=>x.cycleType==="Troca subsequente"&&x.days!=="").length,
+      firstEstimates:cycles.filter(x=>x.cycleType==="Primeira troca observada"&&x.days!=="").length,
+      missingSide:audit.filter(x=>x.accepted==="SIM"&&x.side==="não informado").length}
+  };
+}
+
+const SESSION_FORMAT="sap-history-session";
+const SESSION_VERSION=1;
+function serializeSession(bases,loaded=[],settings={}) {
+  return {format:SESSION_FORMAT,version:SESSION_VERSION,
+    savedAt:new Date().toISOString(),
+    description:"BACKUP LOCAL CONFIDENCIAL: contém as informações originais carregadas pelo usuário",
+    bases:Object.fromEntries(ROLES.map(role=>[role,Array.isArray(bases[role])?bases[role]:[]])),
+    loaded,settings};
+}
+function restoreSession(value) {
+  if(!value||typeof value!=="object"||value.format!==SESSION_FORMAT||value.version!==SESSION_VERSION)
+    throw new Error("Arquivo não é uma sessão SAP suportada (formato/versão).");
+  if(!value.bases||typeof value.bases!=="object")throw new Error("Sessão sem bases SAP.");
+  const bases={};
+  for(const role of ROLES){
+    const rows=value.bases[role]||[];
+    if(!Array.isArray(rows)||rows.length>1000000||rows.some(x=>!x||typeof x!=="object"||Array.isArray(x)))
+      throw new Error("Base inválida na sessão: "+role);
+    bases[role]=rows;
+  }
+  return {bases,loaded:Array.isArray(value.loaded)?value.loaded:[],
+    settings:value.settings&&typeof value.settings==="object"&&!Array.isArray(value.settings)?value.settings:{}};
+}
+
+const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null,lifecycle:null};
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function log(v){$("log").textContent=String(new Date().toLocaleTimeString("pt-BR"))+"  "+v+"\n"+$("log").textContent.slice(0,5500);}
@@ -791,7 +1072,8 @@ async function readSource(file,forced){
  const byRole=new Map();
  for(const item of datasets) {
   if(!item.rows.length)continue;
-  const role=forced!=="auto"?forced:detectRole(Object.keys(item.rows[0]));
+  const declared=item.rows[0]?.__SAP_ROLE;
+  const role=forced!=="auto"?forced:ROLES.includes(declared)?declared:detectRole(Object.keys(item.rows[0]));
   if(!role)continue;
   if(!byRole.has(role)||byRole.get(role).rows.length<item.rows.length)byRole.set(role,{...item,role});
  }
@@ -920,7 +1202,143 @@ function renderRodante(){
   o.sys,o.analysis.evidence,o.reserves.length
  ]),200);
 }
-function renderAll(){renderCatalog();renderMaterials();renderHistory();}
+function lifecycleOptions(){
+ const asOf=$("lifeAsOf").value||isoDate(new Date());
+ const completionStatuses=$("closingStatuses").value.split(/[\s,;]+/).filter(Boolean);
+ const cancellationStatuses=$("cancelStatuses").value.split(/[\s,;]+/).filter(Boolean);
+ return {allowWeak:$("lifeAllowWeak").checked,assetFilter:$("lifeAssetFilter").value,
+   asOf,completionStatuses,cancellationStatuses};
+}
+function renderLifecycle(){
+ const r=analyzeLifecycle(state.model,lifecycleOptions());
+ state.lifecycle=r;
+ const n=r.metrics;
+ metrics("lifeMetrics",[
+  [num(n.trackedEquipment),"Equipamentos elegíveis"],
+  [num(n.ordersAudited),"Ordens de rodante auditadas"],
+  [num(n.approvedOrders),"OS de troca aceitas"],
+  [num(n.firstEstimates),"Primeiras vidas estimadas"],
+  [num(n.closedIntervals),"Intervalos entre trocas"]
+ ]);
+ $("lifeInfo").textContent="O relatório registra o número exato da OS e todos os materiais reservados. "+
+ "Uma ordem pode substituir os dois lados: são duas esteiras, mas UMA ordem e UM custo. "+
+ "Datas-base não são datas de execução; primeira vida desde aquisição é apenas uma aproximação. "+
+ "OS de componente parcial permanecem na auditoria, mas não entram na vida da esteira completa.";
+ table("lifeEquipmentTable",["Equipamento SAP","Descrição","Família","Aquisição","Em serviço",
+   "OS aceitas","Lados observados","Pares","Média de pares (dias)","Primeiras vidas","OS candidatas","OS aceitas"],r.equipmentSummary.map(x=>[
+   x.equipment,x.asset,x.family,x.acquisition,x.commissioning,x.acceptedOrders,
+   x.observedSides,x.subsequentIntervals,x.meanDays,x.firstLifeEstimates,
+   x.candidateOrders,x.acceptedOrderNumbers
+ ]),900);
+ table("lifeCyclesTable",["Equipamento SAP","Ativo","Lado","Sequência","Tipo",
+   "OS EXATA","OS anterior","OS agrupadas","Data inicial","Data da troca","Dias",
+   "Origem inicial","Fonte da data","Evidência","Custo OS (não duplicar)","Materiais"],r.cycles.map(x=>[
+   x.equipment,x.asset,x.side,x.sequence,x.cycleType,x.order,x.previousOrder,
+   x.groupedOrders,x.begin,x.end,x.days,x.initialSource,x.referenceSource,
+   x.confidence,fmtCost(x.costOfOrders),x.partNumbers
+ ]),650);
+ table("lifeAuditTable",["Equipamento","Ativo","OS exata","Descrição",
+   "Classe","Lado","Status","Evidência","Elegível","Justificativa",
+   "Data-base","Fim avaria","Entrada","Custo real","Reservas"],r.audit.map(x=>[
+   x.equipment,x.asset,x.order,x.description,x.operationClass,x.side,x.status,
+   x.evidence,x.accepted,x.reason,x.dateBase,x.faultEnd,x.entry,fmtCost(x.costReal),x.reservedMaterials
+ ]),600);
+ table("lifeMaterialsTable",["OS exata","Ativo","Lado","Reserva","Código","Descrição",
+   "Qtd.","UM","Eliminado","Registro final"],r.materialDetails.map(x=>[
+   x.order,x.asset,x.side,x.reservation,x.material,x.description,x.required,x.unit,x.deleted,x.finalFlag
+ ]),600);
+ table("lifeOpenTable",["Ativo","Lado","Última OS","Data-base","Corte","Dias observados (censurados)"],
+   r.openCycles.map(x=>[x.asset,x.side,x.lastOrder,x.lastDate,x.asOf,x.elapsedDays]),600);
+}
+function renderAll(){renderCatalog();renderMaterials();renderHistory();renderLifecycle();}
+
+function localDownload(name,content,mime){
+ const blob=new Blob([content],{type:mime});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement("a");a.href=url;a.download=name;
+ document.body.appendChild(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),5000);
+}
+function sessionSettings(){
+ return {lifeAsOf:$("lifeAsOf").value,lifeAllowWeak:$("lifeAllowWeak").checked,
+   lifeAssetFilter:$("lifeAssetFilter").value,
+   allowWeak:$("allowWeak").checked,allowProxy:$("allowProxy").checked,
+   componentFilter:$("componentFilter").value,assetFilter:$("assetFilter").value,
+   closingStatuses:$("closingStatuses").value,cancelStatuses:$("cancelStatuses").value};
+}
+function restoreSettings(s){
+ for(const id of ["lifeAsOf","lifeAssetFilter","componentFilter","assetFilter","closingStatuses","cancelStatuses"]){
+  if(s[id]!=null)$(id).value=s[id];
+ }
+ for(const id of ["lifeAllowWeak","allowWeak","allowProxy"])if(s[id]!=null)$(id).checked=Boolean(s[id]);
+}
+function saveSessionJSON(){
+ const rowCount=ROLES.reduce((sum,role)=>sum+state.bases[role].length,0);
+ if(!rowCount)return log("Nenhuma base carregada para salvar.");
+ const data=serializeSession(state.bases,state.loaded,sessionSettings());
+ localDownload("sap_sessao_"+new Date().toISOString().slice(0,10)+".json",
+   JSON.stringify(data),"application/json;charset=utf-8");
+ log("Backup local JSON gerado: "+num(rowCount)+" linhas, incluindo dados corporativos. NÃO publicar no GitHub.");
+}
+async function importSessionJSON(){
+ const file=$("fileSession").files[0];
+ if(!file)return log("Selecione o JSON salvo anteriormente.");
+ try{
+   const parsed=restoreSession(JSON.parse(await file.text()));
+   state.bases=parsed.bases;state.loaded=parsed.loaded;
+   restoreSettings(parsed.settings);rebuild();
+   log("Sessão completa restaurada de "+file.name+". Nenhum upload ao servidor.");
+ }catch(e){log("Erro ao restaurar JSON: "+(e.message||e));}
+ $("fileSession").value="";
+}
+function makeEnrichedPackage(){
+ if(!globalThis.XLSX)return log("Para salvar pacote Excel, a biblioteca XLSX precisa estar carregada. Use o JSON de sessão offline.");
+ const sheets=[{name:"LEIA_ME",rows:[
+  {Info:"PACOTE LOCAL CONFIDENCIAL - NÃO PUBLICAR NA INTERNET"},
+  {Info:"Reimporte este mesmo arquivo usando 'Carregar pacote único'"},
+  {Info:"A fonte está identificada na coluna __SAP_ROLE"},
+  {Info:"Este arquivo contém todas as linhas originais e as colunas de enriquecimento"}
+ ]}];
+ const labels={equipment:"Equipamentos",locations:"Locais",orders:"Ordens_IW39",
+   notes:"Notas_IW29",reservations:"Reservas_MB24"};
+ for(const role of ROLES){
+  if(!state.bases[role].length)continue;
+  const rows=enrichRows(state.model,role).map(x=>({...x,__SAP_ROLE:role}));
+  sheets.push({name:labels[role],rows});
+ }
+ if(sheets.length===1)return log("Nenhuma base carregada.");
+ downloadSheets("sap_pacote_enriquecido",sheets);
+ log("Pacote completo exportado. A próxima análise pode começar importando apenas este Excel.");
+}
+async function importEnrichedPackage(){
+ const file=$("fileBundle").files[0];
+ if(!file)return log("Selecione o pacote enriquecido XLSX.");
+ try{
+  const results=await readSource(file,"auto");
+  const bases=Object.fromEntries(ROLES.map(role=>[role,[]]));
+  const loaded=[];
+  for(const item of results){
+    bases[item.role]=item.rows;
+    loaded.push({file:file.name,sheet:item.sheet,role:item.role,rows:item.rows.length});
+  }
+  state.bases=bases;state.loaded=loaded;rebuild();
+  log("Pacote Excel restaurado: "+results.map(r=>r.role+"="+r.rows.length).join("; ")+
+    ". Roles não incluídos permanecem vazios; sem envio ao servidor.");
+ }catch(e){log("Erro no pacote: "+(e.message||e));}
+ $("fileBundle").value="";
+}
+function saveLifeReport(){
+ const r=state.lifecycle;
+ if(!r)return log("Calcule o ciclo de vida após importar as bases.");
+ downloadSheets("sap_ciclo_vida_esteiras",[
+  {name:"Equipamentos",rows:r.equipmentSummary},
+  {name:"CiclosPorOS",rows:r.cycles},
+  {name:"AuditoriaOS",rows:r.audit},
+  {name:"MateriaisPorOS",rows:r.materialDetails},
+  {name:"CiclosEmAberto",rows:r.openCycles}
+ ]);
+}
+
 document.querySelectorAll("[data-tab]").forEach(btn=>btn.addEventListener("click",()=>{
  document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b===btn));
  document.querySelectorAll(".view").forEach(s=>s.classList.toggle("active",s.id===btn.dataset.tab));
@@ -960,7 +1378,20 @@ $("exportRodante").onclick=()=>{
   }))}
  ]);
 };
-$("resetAll").onclick=()=>{state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];log("Sessão de dados limpa.");rebuild();};
+$("exportBundle").onclick=makeEnrichedPackage;
+$("exportSession").onclick=saveSessionJSON;
+$("importBundle").onclick=importEnrichedPackage;
+$("importSession").onclick=importSessionJSON;
+$("exportLifecycle").onclick=saveLifeReport;
+$("exportLifeQuick").onclick=saveLifeReport;
+$("lifeAllowWeak").onchange=renderLifecycle;
+$("lifeAsOf").onchange=renderLifecycle;
+$("lifeAssetFilter").oninput=renderLifecycle;
+$("resetAll").onclick=()=>{
+ if(!confirm("Apagar as bases carregadas nesta aba? Exporte um backup JSON antes de limpar."))return;
+ state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];
+ log("Sessão de dados limpa; backup não é gerado automaticamente.");rebuild();
+};
 rebuild();
 </script>
 </body></html>
