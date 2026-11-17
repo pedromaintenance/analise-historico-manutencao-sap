@@ -82,6 +82,7 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
   <div class="toolbar">
     <button id="exportBundle" class="primary">Exportar pacote Excel completo</button>
     <button id="exportSession">Exportar sessão JSON</button>
+    <button id="exportSessionGzip">Exportar JSON compacto (.gz)</button>
     <button id="exportLifeQuick">Exportar ciclo de vida</button>
   </div>
   <div class="grid cols2">
@@ -93,7 +94,7 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
     </div>
     <div>
      <h3>Restaurar JSON de sessão</h3>
-     <div class="fileline"><input type="file" id="fileSession" accept=".json,application/json">
+     <div class="fileline"><input type="file" id="fileSession" accept=".json,.json.gz,.gz,application/json,application/gzip">
        <span class="pill">Restabelece bases e filtros</span>
        <button id="importSession">Restaurar sessão</button></div>
     </div>
@@ -464,7 +465,7 @@ function renderLifecycle(){
 function renderAll(){renderCatalog();renderMaterials();renderHistory();renderLifecycle();}
 
 function localDownload(name,content,mime){
- const blob=new Blob([content],{type:mime});
+ const blob=content instanceof Blob?content:new Blob([content],{type:mime});
  const url=URL.createObjectURL(blob);
  const a=document.createElement("a");a.href=url;a.download=name;
  document.body.appendChild(a);a.click();a.remove();
@@ -491,11 +492,26 @@ function saveSessionJSON(){
    JSON.stringify(data),"application/json;charset=utf-8");
  log("Backup local JSON gerado: "+num(rowCount)+" linhas, incluindo dados corporativos. NÃO publicar no GitHub.");
 }
+async function saveCompressedSessionJSON(){
+ const rows=ROLES.reduce((sum,role)=>sum+state.bases[role].length,0);
+ if(!rows)return log("Sem dados para salvar.");
+ if(typeof CompressionStream==="undefined"){
+  log("Seu navegador não suporta compactação nativa: exporte o JSON normal.");return;
+ }
+ const data=serializeSession(state.bases,state.loaded,sessionSettings());
+ const blob=new Blob([JSON.stringify(data)],{type:"application/json"});
+ const compressed=await new Response(blob.stream().pipeThrough(new CompressionStream("gzip"))).blob();
+ localDownload("sap_sessao_"+new Date().toISOString().slice(0,10)+".json.gz",compressed,"application/gzip");
+ log("Backup privado compactado criado: "+num(rows)+" linhas. Não publicar online.");
+}
 async function importSessionJSON(){
  const file=$("fileSession").files[0];
  if(!file)return log("Selecione o JSON salvo anteriormente.");
  try{
-   const parsed=restoreSession(JSON.parse(await file.text()));
+   const source=/\.gz$/i.test(file.name)
+     ?await new Response(file.stream().pipeThrough(new DecompressionStream("gzip"))).text()
+     :await file.text();
+   const parsed=restoreSession(JSON.parse(source));
    state.bases=parsed.bases;state.loaded=parsed.loaded;
    restoreSettings(parsed.settings);rebuild();
    log("Sessão completa restaurada de "+file.name+". Nenhum upload ao servidor.");
@@ -591,6 +607,7 @@ $("exportRodante").onclick=()=>{
 };
 $("exportBundle").onclick=makeEnrichedPackage;
 $("exportSession").onclick=saveSessionJSON;
+$("exportSessionGzip").onclick=saveCompressedSessionJSON;
 $("importBundle").onclick=importEnrichedPackage;
 $("importSession").onclick=importSessionJSON;
 $("exportLifecycle").onclick=saveLifeReport;
