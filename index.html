@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Análise de Histórico de Manutenção SAP</title>
+<style>
+:root{--bg:#f2f5f7;--ink:#182d37;--sub:#57707c;--blue:#005471;--gold:#c3942c;--line:#d4dfe3;--panel:#fff;--green:#0d775d;--red:#b45140;--radius:15px;--shadow:0 7px 26px #143f4e0e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Segoe UI",Arial,sans-serif}
+h1,h2,h3,p{margin-top:0}h1{font-size:clamp(22px,2.5vw,31px);line-height:1.12}h2{font-size:22px}h3{font-size:15px}
+small,.muted{color:var(--sub)}button,input,select{font:inherit}button{cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:10px 14px;color:var(--ink);background:white;font-weight:650}
+button:hover{border-color:var(--blue)}button.primary{background:var(--blue);border-color:var(--blue);color:#fff}button.secondary{background:#edf4f6}
+button:disabled{opacity:.42;cursor:not-allowed}input,select{border:1px solid var(--line);border-radius:9px;padding:10px;min-width:0;background:#fff;color:var(--ink)}
+input[type=file]{max-width:100%}input[type=checkbox]{accent-color:var(--blue);width:17px;height:17px}
+header{background:linear-gradient(110deg,#073d51,#005471);color:white;border-bottom:5px solid var(--gold)}
+.container{max-width:1510px;margin:0 auto;padding:22px}
+.top{display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.eyebrow{text-transform:uppercase;letter-spacing:.15em;color:#f0c875;font-size:11px;font-weight:800}
+header p{color:#d3e7ed;margin:8px 0 0}
+.privacy{font-size:12px;border:1px solid #7ba9b5;padding:8px 12px;border-radius:999px;background:#16516a;white-space:normal}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.tabs button{color:#d8eaf0;background:#11536b;border-color:#387389;border-radius:12px 12px 0 0}
+.tabs button.active{background:var(--bg);color:var(--blue);border-color:var(--bg)}
+main{padding-top:22px}.view{display:none}.view.active{display:block}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);margin-bottom:16px}
+.grid{display:grid;gap:14px}.cols2{grid-template-columns:repeat(2,minmax(0,1fr))}.cols3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:17px}
+.stat{padding:15px;background:white;border:1px solid var(--line);border-radius:12px}.stat b{display:block;font-size:24px;color:var(--blue);line-height:1.1}.stat span{display:block;margin-top:5px;font-size:12px;color:var(--sub)}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:12px 0}.toolbar>input,.toolbar>select{flex:1;min-width:180px;max-width:360px}
+.notice{padding:12px 15px;border-left:4px solid var(--gold);background:#faf6ed;border-radius:8px;margin:12px 0;color:#5e4e2b}
+.warning{border-left-color:var(--red);background:#fff0ee;color:#7a3932}
+.good{border-left-color:var(--green);background:#eef8f3;color:#1c614f}
+table{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}
+th,td{border-bottom:1px solid #e4e9ec;padding:10px 11px;text-align:left;vertical-align:top;max-width:390px;overflow:hidden;text-overflow:ellipsis}
+th{position:sticky;top:0;background:#eaf1f4;color:#254653;z-index:1}
+tr:hover td{background:#f7fbfc}.tablewrap{overflow:auto;max-height:480px;border:1px solid var(--line);border-radius:10px}
+code{font-family:Consolas,monospace;background:#eef4f5;padding:2px 4px;border-radius:4px}
+.tag{display:inline-block;background:#edf4f7;border-radius:99px;color:#315763;padding:2px 8px;font-weight:700;font-size:11px}
+.tag.ok{color:#0d775d;background:#e8f7ef}.tag.warn{color:#966716;background:#fcf1d6}.tag.bad{color:#ad3f30;background:#fcebe8}
+.bar{height:12px;background:#e6edef;border-radius:20px;overflow:hidden;min-width:80px}.bar>i{display:block;height:100%;background:var(--blue)}
+.split{display:flex;gap:20px;justify-content:space-between;flex-wrap:wrap;align-items:center}
+.headline{font-weight:800;color:var(--blue);font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+.result{min-height:72px}.help{line-height:1.65;color:var(--sub)}
+.fileline{display:grid;grid-template-columns:1.4fr 1fr auto;gap:10px;align-items:center}
+#log{font:12px/1.5 Consolas,monospace;max-height:140px;overflow:auto;white-space:pre-wrap;background:#f5f8f9;padding:12px;border-radius:8px}
+.pill{font-size:12px;border:1px solid var(--line);padding:4px 9px;border-radius:99px;color:var(--sub)}
+footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
+@media(max-width:1000px){.summary{grid-template-columns:repeat(3,1fr)}.cols2,.cols3{grid-template-columns:1fr}.fileline{grid-template-columns:1fr}}
+@media(max-width:580px){.summary{grid-template-columns:repeat(2,1fr)}.container{padding:14px}.panel{padding:14px}.tabs{gap:3px}.tabs button{padding:10px 8px;font-size:12px}.stat b{font-size:20px}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+</head>
+<body>
+<header><div class="container">
+  <div class="top"><div><div class="eyebrow">Engenharia de manutenção · ferramenta local</div>
+    <h1>Histórico de Manutenção SAP</h1>
+    <p>Enriquecimento de cadastros, materiais reservados e análise de intervenções por objeto técnico.</p></div>
+    <span class="privacy">Arquivos processados no seu navegador · Sem servidor de upload</span></div>
+  <nav class="tabs" aria-label="Módulos">
+    <button class="active" data-tab="cadastros">01 · Cadastros técnicos</button>
+    <button data-tab="materiais">02 · Materiais & MB24</button>
+    <button data-tab="historico">03 · Ordens & rodante</button>
+  </nav>
+</div></header>
+<main class="container">
+<section id="cadastros" class="view active">
+ <div class="panel">
+  <div class="split"><div><h2>01 · Enriquecimento dos dados mestres</h2>
+   <p class="help">Importe qualquer combinação de IW39, IW29, equipamentos e locais de instalação. O sistema detecta os cabeçalhos, concilia as chaves técnicas e cria dicionários reutilizáveis para exportação.</p></div>
+  </div>
+  <div class="fileline"><input id="filesCatalog" type="file" multiple accept=".xlsx,.xls,.csv,.tsv">
+    <select id="roleCatalog" aria-label="Tipo de base"><option value="auto">Detectar automaticamente pelo cabeçalho</option>
+     <option value="equipment">Equipamentos</option><option value="locations">Locais de instalação</option>
+     <option value="orders">IW39 / Ordens</option><option value="notes">IW29 / Notas</option></select>
+    <button class="primary" id="btnCatalog">Importar planilhas</button></div>
+ </div>
+ <div class="summary" id="datasetMetrics"></div>
+ <div class="panel">
+  <div class="split"><div><h3>Dicionário técnico consolidado</h3><p class="muted">Identificadores, denominações, status, prioridades, pessoas, atividades e outros domínios observados nas exportações.</p></div>
+   <button id="exportDictionary">Exportar dicionário</button></div>
+  <div class="toolbar"><input id="searchDictionary" placeholder="Buscar código, descrição, campo ou origem">
+   <select id="filterDictionary"><option value="">Todos os campos</option></select>
+   <select id="enrichRole"><option value="orders">Enriquecer ordens</option><option value="notes">Enriquecer notas</option><option value="equipment">Enriquecer equipamentos</option><option value="locations">Enriquecer locais</option></select>
+   <button id="exportEnriched">Exportar base enriquecida</button></div>
+  <p id="dictCount" class="muted"></p><div class="tablewrap"><table id="dictionaryTable"></table></div>
+ </div>
+ <div class="grid cols2"><div class="panel"><h3>Regras de conciliação</h3>
+   <p class="help">1. Preferir o identificador de equipamento existente na ordem. 2. Resolver a denominação a partir do mestre de equipamentos. 3. Se não houver equipamento, tentar vínculo inequívoco com a hierarquia do local. 4. Se não houver correspondência confiável, preservar o local funcional como objeto técnico independente.</p>
+   <div class="notice">Locais genéricos de oficina não identificam, por si só, uma máquina específica. A inferência por TAG é sinalizada como confiança média e deve ser validada.</div></div>
+ <div class="panel"><h3>Arquivos importados</h3><div id="loadedFiles" class="result muted">Nenhum arquivo carregado.</div><div class="toolbar"><button id="resetAll">Limpar toda a sessão</button></div><div id="log" aria-live="polite">Aguardando importação.</div></div></div>
+</section>
+<section id="materiais" class="view">
+ <div class="panel"><h2>02 · Materiais e reservas</h2>
+  <p class="help">A base MB24 permite mapear os materiais demandados, as reservas e as ordens relacionadas, sem exigir o cadastro completo de materiais. Isso identifica <strong>necessidade e vínculo</strong>, não confirma saída física ou aplicação.</p>
+  <div class="fileline"><input id="filesMaterials" type="file" multiple accept=".xlsx,.xls,.csv,.tsv">
+   <span class="pill">Detecção de MB24 pela presença de Reserva + Material</span>
+   <button class="primary" id="btnMaterials">Importar MB24</button></div>
+ </div>
+ <div class="summary" id="materialMetrics"></div>
+ <div class="panel"><div class="split"><div><h3>Catálogo observado na MB24</h3><p class="muted">Códigos, textos e associação com ordens, somente do arquivo fornecido.</p></div>
+   <button id="exportMaterials">Exportar materiais enriquecidos</button></div>
+  <div class="toolbar"><input id="searchMaterials" placeholder="Buscar código, material ou descrição"></div>
+  <div class="tablewrap"><table id="materialsTable"></table></div>
+  <div class="notice">A quantidade necessária e os registros da reserva não devem ser confundidos com movimentações confirmadas (MB51 / documentos de material). A análise de vida útil não considera uma simples reserva como prova de troca.</div>
+ </div>
+</section>
+<section id="historico" class="view">
+ <div class="panel"><h2>03 · Histórico de ordens e primeiro relatório especial</h2>
+   <p class="help">Consulte as ordens por equipamento ou local, agregue notas e reservas e identifique intervenções de material rodante. A classificação é auditável e preserva serviços que apenas mencionam esteira, inspeções e trocas planejadas.</p>
+   <div class="fileline"><input id="filesHistory" type="file" multiple accept=".xlsx,.xls,.csv,.tsv">
+    <span class="pill">IW39 / IW29 aceitas individualmente</span>
+    <button class="primary" id="btnHistory">Importar histórico</button></div>
+ </div>
+ <div class="summary" id="historyMetrics"></div>
+ <div class="panel">
+  <div class="split"><div><div class="headline">Relatório especial 01</div>
+    <h2>Intervalo entre trocas de material rodante</h2></div>
+   <button id="exportRodante">Exportar relatório e evidências</button></div>
+  <div class="toolbar">
+   <select id="componentFilter" aria-label="Componente">
+    <option value="esteira completa">Esteira completa / corrente de esteira</option>
+    <option value="roletes">Roletes</option><option value="roda guia">Roda guia</option>
+    <option value="roda motriz / segmento">Roda motriz / segmento</option>
+    <option value="sapatas / fixações">Sapatas / fixações</option>
+    <option value="tensionamento">Tensionamento</option>
+    <option value="material rodante geral">Rodante geral</option><option value="todos">Todos os componentes</option>
+   </select>
+   <input id="assetFilter" placeholder="Filtrar máquina, TAG ou denominação">
+   <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="allowProxy"> Incluir estimativas com data-base</label>
+  </div>
+  <div id="rodanteWarning" class="notice"></div>
+  <div class="summary" id="rodanteMetrics"></div>
+  <h3>Vida entre eventos por objeto, componente e lado</h3>
+  <div class="tablewrap"><table id="intervalTable"></table></div>
+  <p id="intervalCount" class="muted"></p>
+  <h3 style="margin-top:18px">Eventos considerados e rastreabilidade</h3>
+  <div class="tablewrap"><table id="eventsTable"></table></div>
+  <h3 style="margin-top:18px">Ordens candidatas à classificação</h3>
+  <div class="tablewrap"><table id="candidatesTable"></table></div>
+ </div>
+ <div class="panel"><h3>Consulta geral de ordens enriquecidas</h3>
+  <div class="toolbar"><input id="searchOrders" placeholder="Buscar ordem, descrição, equipamento, local ou material"></div>
+  <div class="tablewrap"><table id="ordersTable"></table></div>
+  <p class="muted">A tabela apresenta as primeiras 120 linhas correspondentes para manter a interface responsiva. Exportações completas são geradas diretamente na sessão local.</p>
+ </div>
+ <div class="grid cols2"><div class="panel"><h3>Definição correta de indicadores</h3>
+  <p class="help"><strong>Intervalo calendário entre trocas:</strong> diferença de dias entre duas substituições comparáveis do mesmo item, lado e ativo. <strong>Vida operacional em horas:</strong> diferença entre horímetros registrados nas intervenções, não estimável apenas com IW39/MB24 sem histórico de medidores.</p></div>
+  <div class="panel"><h3>Limitações explícitas</h3><p class="help">Data-base, abertura da ordem, fechamento e reserva são marcos diferentes. Ordens sem registro de execução permanecem como candidatas; componentes individuais não podem ser misturados com conjuntos completos; alterações de equipamento dentro de local funcional exigem histórico de instalação para conciliação definitiva.</p></div></div>
+</section>
+</main>
+<footer>Projeto aberto, sem dados de empresa embarcados · Processamento em memória, sem cookies, analytics ou armazenamento persistente · Uso técnico sujeito à validação do histórico SAP.</footer>
+<script type="module">
+import {ROLES,detectRole,createModel,analyzeRodante,enrichRows,exportMaterials,key,isoDate} from "./src/engine.js";
+
+const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null};
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function log(v){$("log").textContent=String(new Date().toLocaleTimeString("pt-BR"))+"  "+v+"\n"+$("log").textContent.slice(0,5500);}
+function num(v){return Number(v||0).toLocaleString("pt-BR");}
+function fmtDays(v){return Number.isFinite(v)?v.toLocaleString("pt-BR",{maximumFractionDigits:1})+" dias":"—";}
+function table(id,heads,rows,limit=150) {
+ const out=["<thead><tr>"+heads.map(h=>"<th>"+esc(h)+"</th>").join("")+"</tr></thead><tbody>"];
+ for(const row of rows.slice(0,limit))out.push("<tr>"+heads.map((_,i)=>"<td title='"+esc(row[i])+"'>"+esc(row[i])+"</td>").join("")+"</tr>");
+ if(!rows.length)out.push("<tr><td colspan='"+heads.length+"'>Nenhum registro disponível com os filtros atuais.</td></tr>");
+ $(id).innerHTML=out.join("")+"</tbody>";
+}
+function metrics(id,items) {
+ $(id).innerHTML=items.map(x=>"<div class='stat'><b>"+esc(x[0])+"</b><span>"+esc(x[1])+"</span></div>").join("");
+}
+function rebuild(){
+ state.model=createModel(state.bases);
+ renderAll();
+}
+function csvRows(content){
+ const d=content.replace(/^\ufeff/,"");
+ const firstLine=d.split(/\r?\n/,1)[0];
+ const sep=(firstLine.match(/;/g)||[]).length>(firstLine.match(/,/g)||[]).length?";":",";
+ const rows=[];let row=[],value="",quote=false;
+ for(let i=0;i<d.length;i++){
+  const c=d[i];
+  if(c==='"'){if(quote&&d[i+1]==='"'){value+='"';i++;}else quote=!quote;}
+  else if(c===sep&&!quote){row.push(value);value="";}
+  else if((c==="\n"||c==="\r")&&!quote){if(c==="\r"&&d[i+1]==="\n")i++;
+    row.push(value);if(row.some(x=>x!==""))rows.push(row);row=[];value="";}
+  else value+=c;
+ }
+ if(value||row.length){row.push(value);rows.push(row);}
+ const headers=rows.shift()||[];
+ return rows.map(r=>Object.fromEntries(headers.map((h,j)=>[h,r[j]??""])));
+}
+async function readSource(file,forced){
+ let datasets=[];
+ if(/\.csv$|\.tsv$/i.test(file.name)){
+  let source=await file.text();
+  if(/\.tsv$/i.test(file.name))source=source.replace(/\t/g,";");
+  const rows=csvRows(source);
+  datasets=[{sheet:"CSV",rows}];
+ } else {
+  if(!globalThis.XLSX)throw new Error("Leitor XLSX indisponível. Verifique o acesso ao CDN ou exporte CSV.");
+  const workbook=XLSX.read(await file.arrayBuffer(),{type:"array",cellDates:false});
+  datasets=workbook.SheetNames.map(sheet=>({sheet,rows:XLSX.utils.sheet_to_json(workbook.Sheets[sheet],{raw:false,defval:""})}));
+ }
+ const byRole=new Map();
+ for(const item of datasets) {
+  if(!item.rows.length)continue;
+  const role=forced!=="auto"?forced:detectRole(Object.keys(item.rows[0]));
+  if(!role)continue;
+  if(!byRole.has(role)||byRole.get(role).rows.length<item.rows.length)byRole.set(role,{...item,role});
+ }
+ if(!byRole.size)throw new Error("Não identifiquei colunas SAP compatíveis em "+file.name+". Escolha o tipo manualmente ou confira o cabeçalho.");
+ return [...byRole.values()].map(item=>({...item,file:file.name}));
+}
+async function importFiles(input,role="auto"){
+ const files=[...$(input).files];
+ if(!files.length){log("Selecione ao menos um arquivo.");return;}
+ for(const file of files)try{
+  const payloads=await readSource(file,role);
+  for(const p of payloads){
+   state.bases[p.role].push(...p.rows);
+   state.loaded.push({file:p.file,sheet:p.sheet,role:p.role,rows:p.rows.length});
+   log("Lido: "+p.role+" / "+p.rows.length+" linhas / "+file.name+" / "+p.sheet);
+  }
+ }catch(e){log("ERRO "+file.name+": "+(e.message||e));}
+ $(input).value="";
+ rebuild();
+}
+function downloadSheets(name,sheets){
+ if(!sheets.length)return log("Não há dados para exportar.");
+ if(globalThis.XLSX){
+  const book=XLSX.utils.book_new();
+  for(const s of sheets){const ws=XLSX.utils.json_to_sheet(s.rows.length?s.rows:[{"Aviso":"Nenhum dado disponível"}]);
+   XLSX.utils.book_append_sheet(book,ws,s.name.slice(0,31));}
+  XLSX.writeFile(book,name+".xlsx"); log("Arquivo exportado localmente: "+name+".xlsx");
+ }else{
+  const s=sheets[0],cols=[...new Set(s.rows.flatMap(r=>Object.keys(r)))];
+  const quote=v=>'"'+String(v??"").replaceAll('"','""')+'"';
+  const csv=[cols.map(quote).join(";"),...s.rows.map(r=>cols.map(c=>quote(r[c])).join(";"))].join("\r\n");
+  const blob=new Blob(["\ufeff",csv],{type:"text/csv;charset=utf-8"});
+  const url=URL.createObjectURL(blob);const a=document.createElement("a");
+  a.href=url;a.download=name+".csv";a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);
+ }
+}
+function renderCatalog(){
+ const m=state.model;
+ metrics("datasetMetrics",[
+  [num(m.counts.equipment),"Equipamentos"],[num(m.counts.locations),"Locais técnicos"],
+  [num(m.counts.orders),"Ordens IW39"],[num(m.counts.notes),"Notas IW29"],
+  [num(m.dictionaries.length),"Entradas no dicionário"]
+ ]);
+ const dimensions=[...new Set(m.dictionaries.map(x=>x.dimension))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+ const current=$("filterDictionary").value;
+ $("filterDictionary").innerHTML='<option value="">Todos os campos</option>'+dimensions.map(x=>"<option value='"+esc(x)+"'>"+esc(x)+"</option>").join("");
+ $("filterDictionary").value=dimensions.includes(current)?current:"";
+ const term=key($("searchDictionary").value),cat=$("filterDictionary").value;
+ const result=m.dictionaries.filter(x=>(!cat||x.dimension===cat)&&(!term||key(x.dimension+" "+x.code+" "+x.description+" "+x.sources).includes(term)));
+ $("dictCount").textContent=num(result.length)+" registros do dicionário; exibindo até 180.";
+ table("dictionaryTable",["Domínio","Código / chave","Denominação","Ocorrências","Origem"],result.map(x=>[x.dimension,x.code,x.description,x.count,x.sources]),180);
+ $("loadedFiles").innerHTML=state.loaded.length?state.loaded.map(f=>"<div class='pill' style='margin:4px 0'><strong>"+esc(f.role)+"</strong> · "+num(f.rows)+" linhas · "+esc(f.file)+" / "+esc(f.sheet)+"</div>").join(""):"Nenhum arquivo carregado.";
+}
+function renderMaterials(){
+ const m=state.model;const list=exportMaterials(m);
+ metrics("materialMetrics",[
+  [num(m.counts.reservations),"Linhas MB24"],[num(list.length),"Materiais distintos"],
+  [num(new Set(m.norm.reservations.map(x=>x.order).filter(Boolean)).size),"Ordens referenciadas"],
+  [num(m.norm.reservations.filter(x=>!x.order).length),"Sem número de ordem"],
+  [num(m.orphans.reservations),"Reservas sem ordem na base IW39"]
+ ]);
+ const term=key($("searchMaterials").value);
+ const filtered=list.filter(x=>!term||key(x.Material+" "+x.Descrição).includes(term));
+ table("materialsTable",["Material","Descrição da reserva","Linhas","Ordens","Qtd. solicitada*"],filtered.map(x=>[x.Material,x.Descrição,x["Linhas MB24"],x["Ordens distintas"],x["Quantidade solicitada (heterogênea: verificar UM)"]]),180);
+}
+function renderHistory(){
+ const m=state.model;
+ const withEquip=m.orders.filter(o=>o.identity.level==="equipment").length;
+ metrics("historyMetrics",[
+  [num(m.orders.length),"Ordens distintas"],[num(m.orders.filter(o=>o.notes.length).length),"Ordens com notas"],[num(m.orders.filter(o=>o.reserves.length).length),"Ordens com reservas"],[num(withEquip),"Ordens com equipamento conciliado"],[num(m.orphans.notes),"Notas sem ordem informada"]
+ ]);
+ const term=key($("searchOrders").value);
+ const filtered=m.orders.filter(x=>!term||key(x.id+" "+x.description+" "+x.identity.label+" "+x.fl+" "+x.materialCodes.join(" ")).includes(term));
+ table("ordersTable",["OS","Objeto resolvido","Texto breve","Sistema","Usuário","Prioridade","Atividade","Reservas","Identidade"],filtered.map(x=>[
+  x.id,x.identity.label,x.description,x.sys,x.usr,x.priorityText||x.priority,x.activity,x.materialCount,x.identity.method+" ("+x.identity.confidence+")"
+ ]),120);
+ renderRodante();
+}
+function renderRodante(){
+ const m=state.model;
+ const allowProxy=$("allowProxy").checked;
+ const component=$("componentFilter").value,assetPrefix=$("assetFilter").value;
+ const r=analyzeRodante(m,{allowProxy,component,assetPrefix});
+ state.report=r;
+ metrics("rodanteMetrics",[
+  [num(r.candidates.length),"Ordens com componente"],[num(r.eligible.length),"Ordens candidatas a troca"],
+  [num(r.audit.length),"Eventos agrupados"],[num(r.intervals.length),"Intervalos calculáveis"],
+  [fmtDays(r.meanDays),"Média entre trocas"]
+ ]);
+ const uncertain=r.eligible.filter(x=>x.analysis.evidence==="provável (sem data real)").length;
+ const pending=r.eligible.filter(x=>x.analysis.evidence==="planejado / pendente").length;
+ const notice=allowProxy
+  ?"MODO EXPLORATÓRIO: estimativas podem usar data-base em substituição à data real. Os intervalos não representam vida útil comprovada. Confirme as intervenções antes de decidir compra, PM ou garantia."
+  :"MODO RIGOROSO: somente trocas com status indicativo de execução E data real são usadas nos intervalos. Ordens sem data real ("+num(uncertain)+" prováveis neste filtro) não entram na média. "+num(pending)+" permanecem planejadas/pendentes.";
+ $("rodanteWarning").textContent=notice;
+ table("intervalTable",["Ativo","Componente","Lado","Intervalos","Média","Mediana","Mínimo","Máximo"],r.summary.map(x=>[
+  x.asset,x.component,x.side,x.intervals,fmtDays(x.meanDays),fmtDays(x.medianDays),fmtDays(x.minDays),fmtDays(x.maxDays)
+ ]),150);
+ $("intervalCount").textContent="Intervalos entre substituições comparáveis: "+num(r.intervals.length)+
+  ". Múltiplas ordens do mesmo componente e lado dentro de 7 dias são agrupadas em um único evento provisório; verificar em auditoria.";
+ table("eventsTable",["Objeto","Componente","Lado","Data","Ordens vinculadas","Qualidade"],r.audit.map(x=>[
+  x.asset,x.component,x.side,x.date,x.orders,x.origin
+ ]),180);
+ table("candidatesTable",["Ordem","Objeto","Componente","Lado","Descrição","Status","Evidência","Data real","Data-base","Reservas"],r.candidates.map(o=>[
+  o.id,o.identity.label,o.analysis.component,o.analysis.side,o.description,o.sys,o.analysis.evidence,
+  o.analysis.dateReal,o.analysis.dateProxy,o.reserves.map(x=>x.material).join(", ")
+ ]),200);
+}
+function renderAll(){renderCatalog();renderMaterials();renderHistory();}
+document.querySelectorAll("[data-tab]").forEach(btn=>btn.addEventListener("click",()=>{
+ document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b===btn));
+ document.querySelectorAll(".view").forEach(s=>s.classList.toggle("active",s.id===btn.dataset.tab));
+}));
+$("btnCatalog").onclick=()=>importFiles("filesCatalog",$("roleCatalog").value);
+$("btnMaterials").onclick=()=>importFiles("filesMaterials","reservations");
+$("btnHistory").onclick=()=>importFiles("filesHistory","auto");
+for(const id of ["searchDictionary","searchMaterials","searchOrders","assetFilter"])$(id).addEventListener("input",()=>id==="searchDictionary"?renderCatalog():id==="searchMaterials"?renderMaterials():id==="searchOrders"?renderHistory():renderRodante());
+$("filterDictionary").onchange=renderCatalog;
+$("componentFilter").onchange=renderRodante;
+$("allowProxy").onchange=renderRodante;
+$("exportDictionary").onclick=()=>downloadSheets("dicionario_tecnico_sap",[{name:"Dicionarios",rows:state.model.dictionaries}]);
+$("exportEnriched").onclick=()=>{
+ const role=$("enrichRole").value;downloadSheets("sap_"+role+"_enriquecido",[{name:"DadosEnriquecidos",rows:enrichRows(state.model,role)}]);
+};
+$("exportMaterials").onclick=()=>downloadSheets("materiais_observados_mb24",[{name:"Materiais",rows:exportMaterials(state.model)}]);
+$("exportRodante").onclick=()=>{
+ const r=state.report;downloadSheets("relatorio_rodante",[
+  {name:"Resumo",rows:r.summary},{name:"Intervalos",rows:r.intervals.map(x=>({
+   Ativo:x.asset,Componente:x.component,Lado:x.side,Inicio:x.first,Fim:x.last,Dias:x.days,Ordens:x.orders,Qualidade:x.quality
+  }))},{name:"Eventos",rows:r.audit},{name:"Candidatas",rows:r.candidates.map(x=>({
+   Ordem:x.id,Ativo:x.identity.label,Componente:x.analysis.component,Lado:x.analysis.side,Texto:x.description,
+   Evidencia:x.analysis.evidence,DataReal:x.analysis.dateReal,DataBase:x.analysis.dateProxy,Status:x.sys
+  }))}]);
+};
+$("resetAll").onclick=()=>{state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];log("Sessão de dados limpa.");rebuild();};
+rebuild();
+</script>
+</body></html>
