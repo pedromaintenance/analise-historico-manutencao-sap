@@ -318,7 +318,8 @@ const activityPattern=/\b(TROC\w*|SUBST\w*|REPLAC\w*|RENOV\w*)\b/;
 const installationPattern=/\b(MONTAGEM|INSTAL\w*|REINSTAL\w*)\b/;
 const preventivePattern=/\b(INSPEC\w*|VERIFIC\w*|LUBRIF\w*|AVALI\w*|MEDI\w*|TENSION\w*|AJUST\w*|DIAGNOSTIC\w*)\b/;
 export function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancellationStatuses=["NEXE","CANC"]}={}) {
-  const main=key([order.description,order.noteDescription].filter(Boolean).join(" "));
+  // A descrição da OS prevalece. Texto da notificação é contexto, não prova da intervenção.
+  const main=key(order.description||order.noteDescription);
   const reserveText=key((order.reserves||[]).map(x=>x.description).join(" "));
   const timeline=chronology(order);
   let component="";
@@ -329,12 +330,17 @@ export function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancel
   const materialOnly=Boolean(component&&!narrativeComponent);
   if(/CORRENTE\s+DE\s+AVANCO/.test(main)&&!/ESTEIR|RODANTE|ROLETE|RODA\s+GUIA|RODA\s+MOTRIZ/.test(main))component="";
   const replacement=activityPattern.test(main);
+  const hasFasteners=/\b(PARAFUSOS?|PORCAS?|ARRUELAS?|PRESILHAS?)\b/.test(main);
+  const hasPins=/\b(PINOS?|BUCHAS?|ELOS?)\b/.test(main);
+  const hasSegments=/\b(SEGMENTOS?|RODA\s+GUIA|ROLE(TES?|RS?))\b/.test(main);
+  const hasTension=/\b(TENSOR|VALVULA\s+TENS\w*|TENSION\w*)\b/.test(main);
+  const partialOnly=hasFasteners||hasPins||hasSegments||hasTension||/\b(MODULOS?|FPS|SAPATAS?)\b/.test(main);
   const installation=installationPattern.test(main)&&!replacement;
   const adjustment=/\b(AJUST\w*|REPOSIC\w*|RECOLOC\w*|TENSION\w*|TENCION\w*|ESTIC\w*|ALINH\w*)\b|CAIU\s+(?:A\s+)?ESTEIRA|ESTEIRA\s+SAIU/.test(main)&&!replacement;
   const inspection=preventivePattern.test(main)&&!replacement&&!installation&&!adjustment;
   const logistics=/\b(TRANSPORTE|FRETE|ENVIO|COMPRA|AQUISICAO|FORNECIMENTO|MATERIAL\s+PARA|ORCAMENTO|COTACAO)\b/.test(main)&&!replacement;
   const hasTrack=/\bESTEIRAS?\b|\bESTIRAS?\b|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+(?:DE|DA)\s+ESTEIRA/.test(main);
-  const hasPart=Object.entries(patterns).some(([name,re])=>name!=="esteira completa"&&name!=="material rodante geral"&&re.test(main));
+  const hasPart=partialOnly||Object.entries(patterns).some(([name,re])=>name!=="esteira completa"&&name!=="material rodante geral"&&re.test(main));
   let operationClass="menção / indeterminado";
   if(logistics)operationClass="materiais / logística";
   else if(materialOnly)operationClass="indício apenas por reserva";
@@ -344,6 +350,11 @@ export function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancel
   else if(adjustment)operationClass="ajuste / reposicionamento";
   else if(inspection)operationClass="inspeção / diagnóstico";
   else if(installation)operationClass="montagem / instalação";
+  const reservationRows=(order.reserves||[]);
+  const fullMaterial=reservationRows.some(x=>
+    /ESTEIRA\s+COMPLETA|GRUPO\s+(?:DE\s+)?ESTEIRA|CONJ(?:UNTO)?\s+(?:DE\s+)?ELOS\s+CORRENTE|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+COMPLETA/.test(key(x.description)));
+  const reservationHasParts=reservationRows.length>0&&!fullMaterial;
+  // Evidência de material reservado serve para triangulação, não prova aplicação.
   const status=key(order.sys).split(" ");
   const cancelled=cancellationStatuses.map(key).some(x=>status.includes(x));
   const closed=completionStatuses.map(key).some(x=>status.includes(x));
@@ -364,9 +375,16 @@ export function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancel
   else if(isCandidate&&costReal>0)evidence="troca indicada por texto e custo registrado";
   else if(isCandidate)evidence="troca planejada / sem confirmação";
   else if(logistics)evidence="material / logística — não comprova instalação";
-  const evidenceLevel=cancelled?"excluída":isCandidate&&closed?"média":isCandidate&&costReal>0?"média":isCandidate?"baixa":"não elegível";
+  const eventStrong=Boolean(isCandidate&&closed&&costReal>0&&
+    operationClass==="troca de esteira / conjunto"&&
+    (!reservationHasParts));
+  const evidenceLevel=cancelled?"excluída":
+    eventStrong&&fullMaterial?"alta (triangulação)":
+    eventStrong?"média (sem MB24 da troca)":
+    isCandidate?"revisão necessária":"não elegível";
   return {component,side,replacement,installation,inspection,adjustment,operationClass,
-    evidence,evidenceLevel,isCandidate,closed,cancelled,costReal,costPlanned,materialOnly,
+    evidence,evidenceLevel,isCandidate,eventStrong,fullMaterial,reservationHasParts,
+    closed,cancelled,costReal,costPlanned,materialOnly,
     ...timeline,dateReal:timeline.actual,dateProxy:timeline.reference,
     contextOnly:!component&&/ESTEIR|RODANTE/.test(key(order.flLabel))};
 }
