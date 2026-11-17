@@ -212,7 +212,7 @@ test("FPS e parafusos da esteira não viram troca de conjunto",()=>{
   {Ordem:"B","Tipo de ordem":"PM01","Texto breve":"SUBSTITUIÇÃO FPS","Status do sistema":"ENTE","Custos tot.reais":1000}
  ],notes:[{"Tipo de nota":"M1","Nota":"N1",Ordem:"B","Texto breve":"TROCA ESTEIRA"}]});
  assert.equal(classifyRodante(m.orders[0]).operationClass,"troca parcial / componente");
- assert.equal(classifyRodante(m.orders[1]).operationClass,"menção / indeterminado");
+ assert.equal(classifyRodante(m.orders[1]).operationClass,"troca parcial / componente");
  assert.equal(analyzeRodante(m,{asOf:"2026-11-17"}).intervals.length,0);
 });
 test("reserva apenas de parafusos não valida troca completa, mesmo com status e custo",()=>{
