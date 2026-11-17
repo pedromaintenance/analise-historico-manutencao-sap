@@ -92,7 +92,7 @@ export function normalizeRows(role, rows) {
     const m = lookup(source);
     const common = {
       sourceIndex: i + 2, role, raw: source,
-      equipment: pick(m,"equipment"), fl: pick(m,"fl"),
+      equipment: pick(m,"equipment"), fl: pick(m,"fl"),sortKey:pick(m,"sortKey"),
       object: pick(m,"object"), flLabel: pick(m,"flLabel"),
       sys: pick(m,"sys"), usr: pick(m,"usr"),
       createdBy: pick(m,"createdBy"), activity: pick(m,"activity"),
@@ -231,7 +231,7 @@ export function createModel(bases) {
     const n=linkedNotes[0]||null;
     const eq=o.equipment||(n?.equipment||"");
     const fl=o.fl||(n?.fl||"");
-    const identity=resolveAsset(eq,fl,o.object||(n?.object||""),byEquip,byFL,byTag);
+    const identity=resolveAsset(eq,fl,o.object||(n?.object||""),byEquip,byFL,byTag,o.sortKey||(n?.sortKey||""));
     orders.push({...o, equipment:eq, fl, identity, notes:linkedNotes, reserves:linkedMaterials,
       description:o.description||(n?.description||""), notifier:n?.notifier||"",
       materialCount:linkedMaterials.length,
@@ -245,12 +245,22 @@ export function createModel(bases) {
     orphans:{notes:norm.notes.filter(n=>!n.order).length,
       reservations:norm.reservations.filter(r=>r.order&&!byOrder.has(r.order)).length}};
 }
-export function resolveAsset(equipment,fl,desc,byEquip,byFL,byTag) {
+export function resolveAsset(equipment,fl,desc,byEquip,byFL,byTag,directSortKey="") {
   const eq=text(equipment), loc=text(fl);
   if (eq) {
     const e=byEquip.get(eq);
     return {id:"EQ:"+eq,level:"equipment",label:e?.object||desc||eq,
       tag:machineTag(e?.object||desc),method:e?"cadastro de equipamento":"identificador da ordem",confidence:"alta"};
+  }
+  const tagFromSource=machineTag(directSortKey);
+  if(tagFromSource){
+    const matches=byTag.get(tagFromSource)||[];
+    if(matches.length===1)return {
+      id:"EQ:"+matches[0].id,level:"equipment",label:matches[0].object,
+      tag:tagFromSource,method:"Campo de ordenação presente na ordem / nota",
+      confidence:"média"
+    };
+    // Tags inexistentes ou ambíguas não são atribuídas forçadamente.
   }
   // Sem codificar a hierarquia de nenhuma empresa. O usuário fornece o
   // vínculo pelo campo de ordenação dos locais técnicos e pelo mestre de equipamentos.
@@ -554,7 +564,7 @@ export function enrichRows(model,role) {
   return items.map(r=>{
     const eq=model.byEquip.get(r.equipment);
     const fl=model.byFL.get(r.fl);
-    const identity=resolveAsset(r.equipment,r.fl,r.object,model.byEquip,model.byFL,model.byTag);
+    const identity=resolveAsset(r.equipment,r.fl,r.object,model.byEquip,model.byFL,model.byTag,r.sortKey);
     return {...r.raw,
       "Enriq. Equipamento":r.equipment,
       "Enriq. Denominação equipamento":eq?.object||r.object||"",
