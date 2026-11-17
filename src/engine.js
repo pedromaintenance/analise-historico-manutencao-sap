@@ -163,8 +163,9 @@ export function chronology(order) {
   return {dateBase,faultEnd,entry,actual,reference,source,hasTimeline:Boolean(reference)};
 }
 export function machineTag(desc) {
-  const m = text(desc).match(/\b\d{3}[- ]\d{3}\b/);
-  return m ? m[0].replace(" ","-") : "";
+  const values=[...text(desc).matchAll(/\b\d{3}[- ]\d{3}\b/g)];
+  const m=values.at(-1);
+  return m?m[0].replace(" ","-"):"";
 }
 export function createModel(bases) {
   const norm = {};
@@ -194,7 +195,8 @@ export function createModel(bases) {
     mat.qty+=parseNumber(item.qty);
     if(!mat.description && item.description)mat.description=item.description;
   }
-  const noteByOrder = new Map(), reservesByOrder = new Map();
+  const noteByOrder = new Map(), notesById=new Map(), reservesByOrder = new Map();
+  for(const n of norm.notes)if(n.id)notesById.set(n.id,n);
   for (const n of norm.notes) if (n.order) {
     if(!noteByOrder.has(n.order)) noteByOrder.set(n.order,[]);
     noteByOrder.get(n.order).push(n);
@@ -218,8 +220,9 @@ export function createModel(bases) {
     const linkedNotes=noteByOrder.get(o.id)||[];
     // Algumas exportações IW29 não trazem Ordem preenchida.
     // Conciliar pelo número da Nota informada na IW39, sem duplicar.
-    if(o.note)for(const note of norm.notes){
-      if(note.id===o.note&&!linkedNotes.some(n=>n.id===note.id))linkedNotes.push(note);
+    if(o.note){
+      const byId=notesById.get(o.note);
+      if(byId&&!linkedNotes.some(n=>n.id===byId.id))linkedNotes.push(byId);
     }
     const linkedMaterials=reservesByOrder.get(o.id)||[];
     const n=linkedNotes[0]||null;
