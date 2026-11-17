@@ -352,7 +352,7 @@ export function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancel
   else if(installation)operationClass="montagem / instalação";
   const reservationRows=(order.reserves||[]);
   const fullMaterial=reservationRows.some(x=>
-    /ESTEIRA\s+COMPLETA|GRUPO\s+(?:DE\s+)?ESTEIRA|CONJ(?:UNTO)?\s+(?:DE\s+)?ELOS\s+CORRENTE|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+COMPLETA/.test(key(x.description)));
+    /ESTEIRA\s+COMPLETA|^ESTEIRA\s+(?:\d|CAT|D9|D6|GRUPO)|^LAGARTA\s+\w+|GRUPO\s+(?:DE\s+)?ESTEIRA|CONJ(?:UNTO)?\s+(?:DE\s+)?ELOS\s+CORRENTE|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+COMPLETA/.test(key(x.description)));
   const reservationHasParts=reservationRows.length>0&&!fullMaterial;
   // Evidência de material reservado serve para triangulação, não prova aplicação.
   const status=key(order.sys).split(" ");
