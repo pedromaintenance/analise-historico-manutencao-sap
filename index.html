@@ -283,7 +283,8 @@ async function readSource(file,forced){
  const byRole=new Map();
  for(const item of datasets) {
   if(!item.rows.length)continue;
-  const role=forced!=="auto"?forced:detectRole(Object.keys(item.rows[0]));
+  const declared=item.rows[0]?.__SAP_ROLE;
+  const role=forced!=="auto"?forced:ROLES.includes(declared)?declared:detectRole(Object.keys(item.rows[0]));
   if(!role)continue;
   if(!byRole.has(role)||byRole.get(role).rows.length<item.rows.length)byRole.set(role,{...item,role});
  }
@@ -412,7 +413,143 @@ function renderRodante(){
   o.sys,o.analysis.evidence,o.reserves.length
  ]),200);
 }
-function renderAll(){renderCatalog();renderMaterials();renderHistory();}
+function lifecycleOptions(){
+ const asOf=$("lifeAsOf").value||isoDate(new Date());
+ const completionStatuses=$("closingStatuses").value.split(/[\s,;]+/).filter(Boolean);
+ const cancellationStatuses=$("cancelStatuses").value.split(/[\s,;]+/).filter(Boolean);
+ return {allowWeak:$("lifeAllowWeak").checked,assetFilter:$("lifeAssetFilter").value,
+   asOf,completionStatuses,cancellationStatuses};
+}
+function renderLifecycle(){
+ const r=analyzeLifecycle(state.model,lifecycleOptions());
+ state.lifecycle=r;
+ const n=r.metrics;
+ metrics("lifeMetrics",[
+  [num(n.trackedEquipment),"Equipamentos elegíveis"],
+  [num(n.ordersAudited),"Ordens de rodante auditadas"],
+  [num(n.approvedOrders),"OS de troca aceitas"],
+  [num(n.firstEstimates),"Primeiras vidas estimadas"],
+  [num(n.closedIntervals),"Intervalos entre trocas"]
+ ]);
+ $("lifeInfo").textContent="O relatório registra o número exato da OS e todos os materiais reservados. "+
+ "Uma ordem pode substituir os dois lados: são duas esteiras, mas UMA ordem e UM custo. "+
+ "Datas-base não são datas de execução; primeira vida desde aquisição é apenas uma aproximação. "+
+ "OS de componente parcial permanecem na auditoria, mas não entram na vida da esteira completa.";
+ table("lifeEquipmentTable",["Equipamento SAP","Descrição","Família","Aquisição","Em serviço",
+   "OS aceitas","Lados observados","Pares","Média de pares (dias)","Primeiras vidas","OS candidatas","OS aceitas"],r.equipmentSummary.map(x=>[
+   x.equipment,x.asset,x.family,x.acquisition,x.commissioning,x.acceptedOrders,
+   x.observedSides,x.subsequentIntervals,x.meanDays,x.firstLifeEstimates,
+   x.candidateOrders,x.acceptedOrderNumbers
+ ]),900);
+ table("lifeCyclesTable",["Equipamento SAP","Ativo","Lado","Sequência","Tipo",
+   "OS EXATA","OS anterior","OS agrupadas","Data inicial","Data da troca","Dias",
+   "Origem inicial","Fonte da data","Evidência","Custo OS (não duplicar)","Materiais"],r.cycles.map(x=>[
+   x.equipment,x.asset,x.side,x.sequence,x.cycleType,x.order,x.previousOrder,
+   x.groupedOrders,x.begin,x.end,x.days,x.initialSource,x.referenceSource,
+   x.confidence,fmtCost(x.costOfOrders),x.partNumbers
+ ]),650);
+ table("lifeAuditTable",["Equipamento","Ativo","OS exata","Descrição",
+   "Classe","Lado","Status","Evidência","Elegível","Justificativa",
+   "Data-base","Fim avaria","Entrada","Custo real","Reservas"],r.audit.map(x=>[
+   x.equipment,x.asset,x.order,x.description,x.operationClass,x.side,x.status,
+   x.evidence,x.accepted,x.reason,x.dateBase,x.faultEnd,x.entry,fmtCost(x.costReal),x.reservedMaterials
+ ]),600);
+ table("lifeMaterialsTable",["OS exata","Ativo","Lado","Reserva","Código","Descrição",
+   "Qtd.","UM","Eliminado","Registro final"],r.materialDetails.map(x=>[
+   x.order,x.asset,x.side,x.reservation,x.material,x.description,x.required,x.unit,x.deleted,x.finalFlag
+ ]),600);
+ table("lifeOpenTable",["Ativo","Lado","Última OS","Data-base","Corte","Dias observados (censurados)"],
+   r.openCycles.map(x=>[x.asset,x.side,x.lastOrder,x.lastDate,x.asOf,x.elapsedDays]),600);
+}
+function renderAll(){renderCatalog();renderMaterials();renderHistory();renderLifecycle();}
+
+function localDownload(name,content,mime){
+ const blob=new Blob([content],{type:mime});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement("a");a.href=url;a.download=name;
+ document.body.appendChild(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),5000);
+}
+function sessionSettings(){
+ return {lifeAsOf:$("lifeAsOf").value,lifeAllowWeak:$("lifeAllowWeak").checked,
+   lifeAssetFilter:$("lifeAssetFilter").value,
+   allowWeak:$("allowWeak").checked,allowProxy:$("allowProxy").checked,
+   componentFilter:$("componentFilter").value,assetFilter:$("assetFilter").value,
+   closingStatuses:$("closingStatuses").value,cancelStatuses:$("cancelStatuses").value};
+}
+function restoreSettings(s){
+ for(const id of ["lifeAsOf","lifeAssetFilter","componentFilter","assetFilter","closingStatuses","cancelStatuses"]){
+  if(s[id]!=null)$(id).value=s[id];
+ }
+ for(const id of ["lifeAllowWeak","allowWeak","allowProxy"])if(s[id]!=null)$(id).checked=Boolean(s[id]);
+}
+function saveSessionJSON(){
+ const rowCount=ROLES.reduce((sum,role)=>sum+state.bases[role].length,0);
+ if(!rowCount)return log("Nenhuma base carregada para salvar.");
+ const data=serializeSession(state.bases,state.loaded,sessionSettings());
+ localDownload("sap_sessao_"+new Date().toISOString().slice(0,10)+".json",
+   JSON.stringify(data),"application/json;charset=utf-8");
+ log("Backup local JSON gerado: "+num(rowCount)+" linhas, incluindo dados corporativos. NÃO publicar no GitHub.");
+}
+async function importSessionJSON(){
+ const file=$("fileSession").files[0];
+ if(!file)return log("Selecione o JSON salvo anteriormente.");
+ try{
+   const parsed=restoreSession(JSON.parse(await file.text()));
+   state.bases=parsed.bases;state.loaded=parsed.loaded;
+   restoreSettings(parsed.settings);rebuild();
+   log("Sessão completa restaurada de "+file.name+". Nenhum upload ao servidor.");
+ }catch(e){log("Erro ao restaurar JSON: "+(e.message||e));}
+ $("fileSession").value="";
+}
+function makeEnrichedPackage(){
+ if(!globalThis.XLSX)return log("Para salvar pacote Excel, a biblioteca XLSX precisa estar carregada. Use o JSON de sessão offline.");
+ const sheets=[{name:"LEIA_ME",rows:[
+  {Info:"PACOTE LOCAL CONFIDENCIAL - NÃO PUBLICAR NA INTERNET"},
+  {Info:"Reimporte este mesmo arquivo usando 'Carregar pacote único'"},
+  {Info:"A fonte está identificada na coluna __SAP_ROLE"},
+  {Info:"Este arquivo contém todas as linhas originais e as colunas de enriquecimento"}
+ ]}];
+ const labels={equipment:"Equipamentos",locations:"Locais",orders:"Ordens_IW39",
+   notes:"Notas_IW29",reservations:"Reservas_MB24"};
+ for(const role of ROLES){
+  if(!state.bases[role].length)continue;
+  const rows=enrichRows(state.model,role).map(x=>({...x,__SAP_ROLE:role}));
+  sheets.push({name:labels[role],rows});
+ }
+ if(sheets.length===1)return log("Nenhuma base carregada.");
+ downloadSheets("sap_pacote_enriquecido",sheets);
+ log("Pacote completo exportado. A próxima análise pode começar importando apenas este Excel.");
+}
+async function importEnrichedPackage(){
+ const file=$("fileBundle").files[0];
+ if(!file)return log("Selecione o pacote enriquecido XLSX.");
+ try{
+  const results=await readSource(file,"auto");
+  const bases=Object.fromEntries(ROLES.map(role=>[role,[]]));
+  const loaded=[];
+  for(const item of results){
+    bases[item.role]=item.rows;
+    loaded.push({file:file.name,sheet:item.sheet,role:item.role,rows:item.rows.length});
+  }
+  state.bases=bases;state.loaded=loaded;rebuild();
+  log("Pacote Excel restaurado: "+results.map(r=>r.role+"="+r.rows.length).join("; ")+
+    ". Roles não incluídos permanecem vazios; sem envio ao servidor.");
+ }catch(e){log("Erro no pacote: "+(e.message||e));}
+ $("fileBundle").value="";
+}
+function saveLifeReport(){
+ const r=state.lifecycle;
+ if(!r)return log("Calcule o ciclo de vida após importar as bases.");
+ downloadSheets("sap_ciclo_vida_esteiras",[
+  {name:"Equipamentos",rows:r.equipmentSummary},
+  {name:"CiclosPorOS",rows:r.cycles},
+  {name:"AuditoriaOS",rows:r.audit},
+  {name:"MateriaisPorOS",rows:r.materialDetails},
+  {name:"CiclosEmAberto",rows:r.openCycles}
+ ]);
+}
+
 document.querySelectorAll("[data-tab]").forEach(btn=>btn.addEventListener("click",()=>{
  document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b===btn));
  document.querySelectorAll(".view").forEach(s=>s.classList.toggle("active",s.id===btn.dataset.tab));
@@ -452,7 +589,20 @@ $("exportRodante").onclick=()=>{
   }))}
  ]);
 };
-$("resetAll").onclick=()=>{state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];log("Sessão de dados limpa.");rebuild();};
+$("exportBundle").onclick=makeEnrichedPackage;
+$("exportSession").onclick=saveSessionJSON;
+$("importBundle").onclick=importEnrichedPackage;
+$("importSession").onclick=importSessionJSON;
+$("exportLifecycle").onclick=saveLifeReport;
+$("exportLifeQuick").onclick=saveLifeReport;
+$("lifeAllowWeak").onchange=renderLifecycle;
+$("lifeAsOf").onchange=renderLifecycle;
+$("lifeAssetFilter").oninput=renderLifecycle;
+$("resetAll").onclick=()=>{
+ if(!confirm("Apagar as bases carregadas nesta aba? Exporte um backup JSON antes de limpar."))return;
+ state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];
+ log("Sessão de dados limpa; backup não é gerado automaticamente.");rebuild();
+};
 rebuild();
 </script>
 </body></html>
