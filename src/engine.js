@@ -355,10 +355,14 @@ const preventivePattern=/\b(INSPEC\w*|VERIFIC\w*|LUBRIF\w*|AVALI\w*|MEDI\w*|TENS
  */
 export function rodanteMaterialSignature(reservations=[]) {
  const parts={chain:[],shoes:[],fasteners:[],idler:[],sprocket:[],rollers:[],service:[],other:[]};
- const materialRows=(reservations||[]).filter(r=>!["X","SIM","TRUE","1"].includes(key(r.deletedFlag)));
+ // Eliminação da posição de reserva NÃO anula a quantidade registrada.
+ // É comum uma posição encerrada/eliminada ter registro quantitativo positivo.
+ const materialRows=(reservations||[]).filter(r=>
+   !["X","SIM","TRUE","1"].includes(key(r.deletedFlag))||parseNumber(r.qtyPosted)>0);
  for(const row of materialRows){
   const name=key(row.description||row.materialText);
   const qty=parseNumber(row.qty);
+  const posted=parseNumber(row.qtyPosted);
   let category="other";
   if(/\b(TRANSPORTE|SERVICO|FRETE|MAO\s+DE\s+OBRA)\b/.test(name))category="service";
   else if(/\b(CONJUNTO\s+(?:DE\s+)?ELOS|GRUPO\s+(?:DE\s+)?ESTEIRA|CORRENTE\s+(?:DE\s+ELOS|EH[0-9]|DA\s+ESTEIRA)|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|LAGARTA\b|ESTEIRAS?\s+(?:COMPLET|[0-9]|CAT))/.test(name)&&
@@ -368,9 +372,14 @@ export function rodanteMaterialSignature(reservations=[]) {
   else if(/\b(RODA\s+GUIA|IDLER)\b/.test(name))category="idler";
   else if(/\b(RODA\s+MOTRIZ|SPROCKET|SEGMENTO\s+(?:DA\s+)?RODA)\b/.test(name))category="sprocket";
   else if(/\b(ROLETES?|ROLLERS?)\b/.test(name))category="rollers";
-  parts[category].push({material:row.material,description:row.description,qty,unit:row.unit});
+  parts[category].push({material:row.material,description:row.description,qty,posted,unit:row.unit,
+    deleted:row.deletedFlag,finalFlag:row.finalFlag});
  }
  const core=parts.chain.length>0;
+ const postedRows=materialRows.filter(r=>parseNumber(r.qtyPosted)>0).length;
+ const postedCore=parts.chain.some(x=>x.posted>0);
+ const postedComplementary=Object.entries(parts).some(([name,rows])=>
+   name!=="chain"&&name!=="service"&&name!=="other"&&rows.some(x=>x.posted>0));
  const shoes=parts.shoes.length>0;
  const heavyFasteners=parts.fasteners.some(x=>x.qty>=40);
  const drive=parts.sprocket.length>0;
@@ -382,7 +391,7 @@ export function rodanteMaterialSignature(reservations=[]) {
  const complete=core&&peripheralFamilies>=2;
  const categories=Object.entries(parts).filter(([name,rows])=>name!=="other"&&name!=="service"&&rows.length).map(([name])=>name);
  return {complete,core,shoes,heavyFasteners,drive,idler,rollers,
-   peripheralFamilies,materialRows:materialRows.length,
+   peripheralFamilies,materialRows:materialRows.length,postedRows,postedCore,postedComplementary,
    categories,parts,reason:complete
     ?"Conjunto central da esteira + componentes complementares em reserva"
     :core?"Conjunto central encontrado, composição complementar insuficiente"
@@ -436,10 +445,11 @@ export function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancel
  const isCandidate=Boolean(component&&operationClass==="troca de esteira / conjunto"&&!cancelled);
  // Custos reais + composição completa + escopo técnico: evidência forte,
  // inclusive com status LIB/MOME (sem alegar encerramento administrativo).
- const eventStrong=Boolean(isCandidate&&signature.complete&&costReal>0);
+ const eventStrong=Boolean(isCandidate&&signature.complete&&costReal>0&&
+   (signature.postedRows===0||(signature.postedCore&&signature.postedComplementary)));
  const evidenceLevel=cancelled?"excluída":
-   eventStrong?"alta (escopo + conjunto MB24 + custo real)":
-   isCandidate&&signature.complete?"verificar custo / status (kit identificado)":
+   eventStrong?(signature.postedCore?"alta (escopo + materiais registrados + custo real)":"alta (escopo + kit MB24 + custo real; registro não informado)"):
+   isCandidate&&signature.complete?"verificar custo, registro ou status (kit identificado)":
    isCandidate&&costReal>0?"revisão necessária (custo sem kit MB24)":
    isCandidate?"escopo declarado — execução não demonstrada":
    "não elegível";
