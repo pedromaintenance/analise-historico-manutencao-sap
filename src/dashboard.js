@@ -255,33 +255,129 @@ export function renderDashboardCards(data,{includeOther=false,editable=true}={})
  return head+html+'</div></div>';
 }
 
-export function generateStandaloneDashboard(data,{includeOther=false}={}){
- const safeData=JSON.stringify(data).replace(/</g,"\\u003c").replace(/>/g,"\\u003e").replace(/&/g,"\\u0026");
- const cards=renderDashboardCards(data,{includeOther});
+
+/* Executada exclusivamente no HTML privado exportado; não persiste dados no navegador. */
+function offlineReviewRuntime(){
+ "use strict";
+ const initial=JSON.parse(document.getElementById("report-data").textContent);
+ let decisions=importReviewFile(JSON.parse(document.getElementById("review-data").textContent));
+ const report=document.getElementById("report");
+ const search=document.getElementById("find");
+ const other=document.getElementById("other");
+ const counter=document.getElementById("decision-count");
+ function download(name,content,type){
+  const blob=new Blob([content],{type:type||"application/octet-stream"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2500);
+ }
+ function filter(){
+  const q=search.value.toLowerCase().trim();
+  report.querySelectorAll(".report-machine").forEach(el=>{
+   el.style.display=!q||el.dataset.search.includes(q)?"":"none";
+  });
+ }
+ function redraw(){
+  const data=recalculateReviewedDashboard(initial,decisions);
+  report.innerHTML=renderDashboardCards(data,{includeOther:other.checked,editable:true});
+  filter();
+  const edits=Object.values(decisions).filter(x=>typeof x.selected==="boolean").length;
+  const selected=data.machines.filter(x=>x.selected!==false).reduce((n,m)=>n+m.changeOrders,0);
+  counter.textContent=edits+" decisões manuais · "+selected+" OS marcadas como troca";
+ }
+ report.addEventListener("change",event=>{
+  const element=event.target;
+  const field=element.matches("[data-review-select]")?"selected":
+    element.matches("[data-review-side]")?"side":
+    element.matches("[data-review-date]")?"date":
+    element.matches("[data-review-note]")?"note":"";
+  if(!field)return;
+  const card=element.closest(".report-machine");
+  const row=element.closest("tr[data-order]");
+  if(!card||!row)return;
+  const id=reviewOrderKey(card.dataset.asset,row.dataset.order);
+  const current={...(decisions[id]||{})};
+  current[field]=field==="selected"?element.checked:element.value;
+  decisions[id]=current;
+  redraw();
+ });
+ search.addEventListener("input",filter);
+ other.addEventListener("change",redraw);
+ document.getElementById("print").addEventListener("click",()=>window.print());
+ document.getElementById("save-decisions").addEventListener("click",()=>{
+  download("revisao_ordens_rodante.json",JSON.stringify(exportReviewFile(decisions),null,2),"application/json");
+ });
+ document.getElementById("load-decisions").addEventListener("click",()=>{
+  document.getElementById("review-file").click();
+ });
+ document.getElementById("review-file").addEventListener("change",async event=>{
+  const file=event.target.files[0];if(!file)return;
+  try{decisions={...decisions,...importReviewFile(JSON.parse(await file.text()))};redraw();}
+  catch(e){alert("Arquivo de revisão inválido: "+e.message);}
+  event.target.value="";
+ });
+ document.getElementById("save-reviewed").addEventListener("click",()=>{
+  const html=generateStandaloneDashboard(initial,{includeOther:other.checked,reviews:decisions});
+  download("dashboard_rodante_revisado.html",html,"text/html;charset=utf-8");
+ });
+ redraw();
+}
+
+/* Gera documento privado inteiramente funcional sem bibliotecas externas. */
+export function generateStandaloneDashboard(data,{includeOther=true,reviews={}}={}){
+ const choices=normalizeReviewDecisions(reviews);
+ const reviewed=recalculateReviewedDashboard(data,choices);
+ const safeJSON=value=>JSON.stringify(value).replace(/</g,"\\u003c")
+   .replace(/>/g,"\\u003e").replace(/&/g,"\\u0026")
+   .replace(/\u2028/g,"\\u2028").replace(/\u2029/g,"\\u2029");
  const title=escapeHtml(data.title||"Ciclo de Vida — Material Rodante");
- const css=DASHBOARD_STYLE;
- // Apenas o relatório filtrado é incorporado. Nenhum envio de dados, API, CDN ou telemetria.
- return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
-  '<meta name="referrer" content="no-referrer"><title>'+title+'</title><style>'+
-  'body{margin:0;background:#eff4f6;font:14px Segoe UI,Arial,sans-serif;color:#173042}.shell{max-width:1550px;margin:auto;padding:22px}'+
-  '.mast{background:#073d51;color:#fff;padding:26px 24px;border-bottom:5px solid #c3942c}.mast-inner{max-width:1550px;margin:auto}.mast h1{font-size:clamp(23px,3vw,32px);margin:4px 0 10px}.mast p{color:#c7dce3;margin:0}'+
-  '.controls{background:#fff;border:1px solid #d6e0e5;padding:14px;border-radius:14px;margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}'+
-  '.controls input[type=text]{padding:11px;border:1px solid #cbd9de;border-radius:8px;min-width:180px;flex:1}'+
-  '.controls button{background:#005471;border:0;border-radius:8px;color:white;padding:11px 15px;cursor:pointer;font-weight:750}'+
-  '.disclaimer{color:#627784;font-size:12px;margin:10px 0 20px}'+css+
-  '@media print{.mast{background:white!important;color:black!important}.mast p{color:black}.controls{display:none}.shell{padding:0}.report-app .report-machine{break-inside:avoid}body{background:white}}'+
-  '</style></head><body><header class="mast"><div class="mast-inner"><small>ENGENHARIA DE MANUTENÇÃO · ANÁLISE TÉCNICA</small><h1>'+title+'</h1>'+
-  '<p>Gerado em '+dateBR(toText(data.createdAt).slice(0,10))+' · '+data.machines.filter(x=>x.selected!==false).length+' equipamentos selecionados</p></div></header>'+
-  '<main class="shell"><div class="controls"><input type="text" id="find" placeholder="Buscar equipamento, TAG ou modelo">'+
-  '<label><input type="checkbox" id="other"'+(includeOther?' checked':'')+'> Mostrar inspeções, ajustes e demais OS</label>'+
-  '<button id="print" type="button">Imprimir / salvar PDF</button></div>'+
-  '<p class="disclaimer">'+escapeHtml(data.disclaimer)+'</p>'+
-  '<div id="report">'+cards+'</div></main>'+
-  '<script id="report-data" type="application/json">'+safeData+'</script>'+
-  '<script>(function(){var container=document.getElementById("report");var input=document.getElementById("find");'+
-  'function apply(){var q=input.value.toLowerCase().trim();container.querySelectorAll(".report-machine").forEach(function(el){el.style.display=!q||el.getAttribute("data-search").includes(q)?"":"none";});'+
-  'container.querySelector(".report-app").classList.toggle("report-show-other",document.getElementById("other").checked);}'+
-  'input.addEventListener("input",apply);document.getElementById("other").addEventListener("change",apply);'+
-  'document.getElementById("print").addEventListener("click",function(){window.print();});apply();})();</script>'+
-  '</body></html>';
+ const helperSource=[
+  "const toText="+toText.toString()+";",
+  "const escapeHtml="+escapeHtml.toString()+";",
+  "const dateBR="+dateBR.toString()+";",
+  "const money="+money.toString()+";",
+  "const days="+days.toString()+";",
+  "const median="+median.toString()+";",
+  "const DASHBOARD_STYLE="+JSON.stringify(DASHBOARD_STYLE)+";",
+  reviewOrderKey.toString(),normalizeReviewDecisions.toString(),
+  exportReviewFile.toString(),importReviewFile.toString(),isoToDay.toString(),
+  recalculateReviewedDashboard.toString(),renderDashboardCards.toString(),
+  generateStandaloneDashboard.toString(),offlineReviewRuntime.toString(),
+  "offlineReviewRuntime();"
+ ].join("\n");
+ const css="body{margin:0;background:#eff4f6;font:14px Segoe UI,Arial,sans-serif;color:#173042}"+
+ ".shell{max-width:1550px;margin:auto;padding:22px}"+
+ ".mast{background:#073d51;color:#fff;padding:26px 24px;border-bottom:5px solid #c3942c}"+
+ ".mast-inner{max-width:1550px;margin:auto}"+
+ ".mast h1{font-size:clamp(23px,3vw,32px);margin:4px 0 10px}"+
+ ".mast p{color:#c7dce3;margin:0}"+
+ ".controls{background:#fff;border:1px solid #d6e0e5;padding:14px;border-radius:14px;margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}"+
+ ".controls input[type=text]{padding:11px;border:1px solid #cbd9de;border-radius:8px;min-width:180px;flex:1}"+
+ ".controls button{background:#005471;border:0;border-radius:8px;color:#fff;padding:10px 14px;cursor:pointer;font-weight:750}"+
+ ".controls button.alt{background:#e4edf0;color:#214b5c}"+
+ ".disclaimer{color:#627784;font-size:12px;margin:10px 0 20px}"+
+ DASHBOARD_STYLE+
+ "@media print{.mast{background:white!important;color:black!important}.mast p{color:black}.controls{display:none!important}.shell{padding:0}.report-app .report-edit{display:none!important}.report-app .report-machine{break-inside:avoid}body{background:white}}";
+ return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'+
+ '<meta name="viewport" content="width=device-width,initial-scale=1">'+
+ '<meta name="referrer" content="no-referrer"><title>'+title+'</title><style>'+css+'</style></head><body>'+
+ '<header class="mast"><div class="mast-inner"><small>ENGENHARIA DE MANUTENÇÃO · REVISÃO TÉCNICA</small>'+
+ '<h1>'+title+'</h1><p>Relatório revisável offline · '+reviewed.machines.filter(m=>m.selected!==false).length+
+ ' equipamentos selecionados</p></div></header>'+
+ '<main class="shell"><div class="controls">'+
+ '<input type="text" id="find" placeholder="Buscar equipamento, TAG ou modelo">'+
+ '<label><input type="checkbox" id="other"'+(includeOther?' checked':'')+'> Mostrar todas as OS</label>'+
+ '<button id="save-decisions">Exportar decisões JSON</button>'+
+ '<button id="load-decisions" class="alt">Importar decisões</button>'+
+ '<input id="review-file" type="file" accept=".json" style="display:none">'+
+ '<button id="save-reviewed">Exportar HTML revisado</button>'+
+ '<button id="print" class="alt">Imprimir / PDF</button>'+
+ '<small id="decision-count" aria-live="polite"></small></div>'+
+ '<p class="disclaimer">'+escapeHtml(data.disclaimer)+
+ ' A revisão altera os KPIs locais e não modifica registros SAP. Salve HTML ou JSON antes de fechar.</p>'+
+ '<div id="report">'+renderDashboardCards(reviewed,{includeOther,editable:true})+'</div></main>'+
+ '<script id="report-data" type="application/json">'+safeJSON(data)+'</script>'+
+ '<script id="review-data" type="application/json">'+safeJSON(exportReviewFile(choices))+'</script>'+
+ '<script>'+helperSource+'</script></body></html>';
 }
