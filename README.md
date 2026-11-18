@@ -87,3 +87,21 @@ A coluna **Qtd. UM registro** passa a ser considerada mesmo quando **Item foi el
 A análise separa **OS principal** com composição de materiais/custo, **OS de apoio** do mesmo equipamento com escopo ou data, e serviços parciais. Se a OS principal não tem Fim da avaria, uma OS explícita de substituição sem custo pode ser associada no intervalo de até 45 dias após o planejamento. O dashboard informa quando a data é inferida dessa OS, sem duplicar o evento.
 
 A validação utiliza testes sintéticos de casos positivos e negativos. O código publicado não contém ordens, materiais ou valores corporativos.
+
+## Dashboard revisável e sessão única — versão 0.5
+
+A exportação/restauração de sessão completa (incluindo as cinco bases SAP, configurações, filtros, equipamentos excluídos e **decisões manuais de OS**) está disponível no **cabeçalho de todas as abas**. O JSON GZIP é um backup completo; cálculos e painéis são refeitos na restauração.
+
+Na aba **05 · Dashboard**, cada OS tem controles para marcar ou desmarcar **Conta como troca**, informar **lado** (direito, esquerdo, ambos, não informado), editar **data do evento** e registrar **justificativa**. A decisão do analista substitui a sugestão automática apenas para os KPIs do dashboard; a classificação original, materiais, custo e dados SAP são preservados para auditoria.
+
+Os cartões de cada máquina e as métricas gerais são recalculados em tempo real a partir das OS marcadas. Uma OS para ambos os lados conta **uma ordem** e **um custo**. O intervalo entre trocas só é calculado quando há duas referências consecutivas do mesmo lado. Na falta desses pares, exibe-se o tempo aproximado desde aquisição/entrada em serviço até a primeira OS marcada, devidamente qualificado.
+
+O HTML exportado também é **editável offline**. Inclui:
+- Exportar decisões JSON, sem precisar reenviar as cinco bases;
+- Importar decisões JSON para continuar uma revisão;
+- Exportar **HTML revisado**, incorporando dados e decisões atuais;
+- Imprimir ou salvar PDF após revisar.
+
+A aba 05 também pode importar o JSON de decisões do HTML revisado. O backup da sessão completa conserva as mesmas decisões para todos os módulos.
+
+**Segurança:** arquivos HTML revisados, JSON de decisões (contêm identificadores SAP) e backups completos são privados. A aplicação pública disponibiliza somente código, sem bases empresariais. Não existe salvamento automático do conteúdo corporativo no navegador ou nuvem.
