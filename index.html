@@ -54,6 +54,10 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
 .dash-machine-choice small{display:block;color:var(--sub)}
 .dash-machine-choice input{flex:none;margin-top:3px}
 @media print{#dashboard .panel:not(:last-child),header,footer{display:none!important}#dashboard .panel:last-child{border:0;box-shadow:none;padding:0}}
+.session-shortcut{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;padding:9px 0 13px}
+.session-shortcut span{color:#d5e6ea;font-size:12px}
+.session-shortcut button{padding:7px 12px;border:1px solid #c8d8dc;border-radius:8px;background:#f4f8fa;color:#164659;font-weight:750;cursor:pointer}
+@media(max-width:620px){.session-shortcut{justify-content:flex-start}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 </head>
@@ -70,6 +74,12 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
     <button data-tab="ciclo">04 · Ciclo de vida</button>
     <button data-tab="dashboard">05 · Dashboard</button>
   </nav>
+  <div class="session-shortcut" role="group" aria-label="Sessão de todas as abas">
+   <span id="globalSessionInfo">Sessão em memória · Todas as abas</span>
+   <button id="globalExportSession" type="button">Exportar sessão completa (.json.gz)</button>
+   <button id="globalImportSession" type="button">Restaurar sessão completa</button>
+   <input id="globalSessionFile" type="file" accept=".json,.json.gz,.gz" style="display:none">
+  </div>
 </div></header>
 <main class="container">
 <section id="cadastros" class="view active">
@@ -253,6 +263,12 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
     <label><input type="checkbox" id="dashAllowWeak"> Incluir candidatas de evidência fraca</label>
     <label><input type="checkbox" id="dashShowOther" checked> Mostrar outras intervenções na tabela</label>
   </div>
+  <div class="toolbar">
+    <button id="dashExportDecisions" type="button">Exportar decisões das OS (.json)</button>
+    <button id="dashImportDecisions" type="button">Importar decisões</button>
+    <input id="dashReviewFile" type="file" accept=".json" style="display:none">
+    <span class="muted">As decisões entram no backup da sessão e nos KPIs revisados.</span>
+  </div>
   <div class="summary" id="dashStats"></div>
  </div>
  <div class="panel">
@@ -274,9 +290,9 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
 <footer>Projeto aberto, sem dados de empresa embarcados · Processamento em memória, sem cookies, analytics ou armazenamento persistente · Uso técnico sujeito à validação do histórico SAP.</footer>
 <script type="module">
 import {ROLES,detectRole,createModel,analyzeRodante,analyzeLifecycle,serializeSession,restoreSession,enrichRows,exportMaterials,key,isoDate} from "./src/engine.js";
-import {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard} from "./src/dashboard.js";
+import {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard,recalculateReviewedDashboard,reviewOrderKey,exportReviewFile,importReviewFile,normalizeReviewDecisions} from "./src/dashboard.js";
 
-const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null,lifecycle:null,dashboardExcluded:new Set(),dashboardCore:null,dashboardCacheKey:"",dataVersion:0};
+const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null,lifecycle:null,dashboardExcluded:new Set(),dashboardCore:null,dashboardCacheKey:"",dataVersion:0,dashboardReviews:{}};
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function log(v){$("log").textContent=String(new Date().toLocaleTimeString("pt-BR"))+"  "+v+"\n"+$("log").textContent.slice(0,5500);}
@@ -294,6 +310,7 @@ function metrics(id,items) {
 function rebuild(){
  state.model=createModel(state.bases);
  state.dataVersion++;
+ if($("globalSessionInfo"))$("globalSessionInfo").textContent=ROLES.reduce((n,r)=>n+state.bases[r].length,0).toLocaleString("pt-BR")+" linhas carregadas · Todas as abas";
  state.dashboardCore=null;
  state.dashboardCacheKey="";
  renderAll();
@@ -556,7 +573,7 @@ function renderDashboardSelections(){
 }
 function renderDashboard(){
  const base=getDashboardBase();
- const payload=buildDashboardData(base,{excluded:[...state.dashboardExcluded]});
+ const payload=recalculateReviewedDashboard(buildDashboardData(base,{excluded:[...state.dashboardExcluded]}),state.dashboardReviews);
  state.dashboardPayload=payload;
  const families=[...new Set(payload.machines.map(m=>m.family))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
  const previous=$("dashFamily").value;
@@ -580,7 +597,7 @@ function renderDashboard(){
  ]);
  $("dashPreviewCount").textContent=num(selected.length)+" máquina(s) no relatório";
  $("dashPreview").innerHTML='<style>'+DASHBOARD_STYLE+'</style>'+
-  renderDashboardCards(payload,{includeOther:$("dashShowOther").checked});
+  renderDashboardCards(payload,{includeOther:$("dashShowOther").checked,editable:true});
  if(!selected.length)$("dashPreview").innerHTML='<p class="notice">Selecione pelo menos um equipamento para gerar o dashboard.</p>';
 }
 function setDashboardVisible(checked){
@@ -593,7 +610,7 @@ function exportDashboardHTML(){
  const payload=state.dashboardPayload||buildDashboardData(getDashboardBase());
  const selected={...payload,machines:payload.machines.filter(m=>m.selected!==false)};
  if(!selected.machines.length)return log("Selecione pelo menos um equipamento antes de exportar.");
- const html=generateStandaloneDashboard(selected,{includeOther:$("dashShowOther").checked});
+ const html=generateStandaloneDashboard(selected,{includeOther:$("dashShowOther").checked,reviews:state.dashboardReviews});
  localDownload("dashboard_rodante_"+new Date().toISOString().slice(0,10)+".html",html,"text/html;charset=utf-8");
  log("Dashboard privado exportado com "+selected.machines.length+" equipamentos. Guardar em ambiente autorizado.");
 }
@@ -605,7 +622,7 @@ function localDownload(name,content,mime){
  setTimeout(()=>URL.revokeObjectURL(url),5000);
 }
 function sessionSettings(){
- return {dashboardExcluded:[...state.dashboardExcluded],dashboardShowOther:$("dashShowOther").checked,dashboardAllowWeak:$("dashAllowWeak").checked,
+ return {dashboardReviews:normalizeReviewDecisions(state.dashboardReviews),dashboardExcluded:[...state.dashboardExcluded],dashboardShowOther:$("dashShowOther").checked,dashboardAllowWeak:$("dashAllowWeak").checked,
   lifeAsOf:$("lifeAsOf").value,lifeAllowWeak:$("lifeAllowWeak").checked,
    lifeAssetFilter:$("lifeAssetFilter").value,
    allowWeak:$("allowWeak").checked,allowProxy:$("allowProxy").checked,
@@ -613,6 +630,7 @@ function sessionSettings(){
    closingStatuses:$("closingStatuses").value,cancelStatuses:$("cancelStatuses").value};
 }
 function restoreSettings(s){
+ state.dashboardReviews=normalizeReviewDecisions(s.dashboardReviews);
  state.dashboardExcluded=new Set(Array.isArray(s.dashboardExcluded)?s.dashboardExcluded.map(String):[]);
  if(s.dashboardShowOther!=null)$("dashShowOther").checked=Boolean(s.dashboardShowOther);
  if(s.dashboardAllowWeak!=null)$("dashAllowWeak").checked=Boolean(s.dashboardAllowWeak);
@@ -641,8 +659,8 @@ async function saveCompressedSessionJSON(){
  localDownload("sap_sessao_"+new Date().toISOString().slice(0,10)+".json.gz",compressed,"application/gzip");
  log("Backup privado compactado criado: "+num(rows)+" linhas. Não publicar online.");
 }
-async function importSessionJSON(){
- const file=$("fileSession").files[0];
+async function importSessionJSON(inputId="fileSession"){
+ const file=$(inputId).files[0];
  if(!file)return log("Selecione o JSON salvo anteriormente.");
  try{
    const source=/\.gz$/i.test(file.name)
@@ -653,7 +671,7 @@ async function importSessionJSON(){
    restoreSettings(parsed.settings);rebuild();
    log("Sessão completa restaurada de "+file.name+". Nenhum upload ao servidor.");
  }catch(e){log("Erro ao restaurar JSON: "+(e.message||e));}
- $("fileSession").value="";
+ $(inputId).value="";
 }
 function makeEnrichedPackage(){
  if(!globalThis.XLSX)return log("Para salvar pacote Excel, a biblioteca XLSX precisa estar carregada. Use o JSON de sessão offline.");
@@ -744,6 +762,41 @@ $("exportRodante").onclick=()=>{
   }))}
  ]);
 };
+$("globalExportSession").onclick=()=>saveCompressedSessionJSON();
+$("globalImportSession").onclick=()=>$("globalSessionFile").click();
+$("globalSessionFile").onchange=()=>importSessionJSON("globalSessionFile");
+$("dashExportDecisions").onclick=()=>{
+ const file=exportReviewFile(state.dashboardReviews);
+ localDownload("revisao_ordens_rodante.json",JSON.stringify(file,null,2),"application/json");
+ log("Decisões manuais exportadas: "+Object.keys(file.reviews).length+" OS revisadas.");
+};
+$("dashImportDecisions").onclick=()=>$("dashReviewFile").click();
+$("dashReviewFile").onchange=async event=>{
+ const file=event.target.files[0];if(!file)return;
+ try{
+  const decisions=importReviewFile(JSON.parse(await file.text()));
+  state.dashboardReviews={...state.dashboardReviews,...decisions};
+  renderDashboard();
+  log("Importadas "+Object.keys(decisions).length+" decisões de OS, com recálculo dos KPIs.");
+ }catch(error){log("Erro nas decisões: "+error.message);}
+ event.target.value="";
+};
+$("dashPreview").addEventListener("change",event=>{
+ const el=event.target;
+ const type=el.matches("[data-review-select]")?"selected":
+  el.matches("[data-review-side]")?"side":
+  el.matches("[data-review-date]")?"date":
+  el.matches("[data-review-note]")?"note":"";
+ if(!type)return;
+ const machine=el.closest(".report-machine");
+ const row=el.closest("tr[data-order]");
+ if(!machine||!row)return;
+ const id=reviewOrderKey(machine.dataset.asset,row.dataset.order);
+ const review={...(state.dashboardReviews[id]||{})};
+ review[type]=type==="selected"?el.checked:el.value;
+ state.dashboardReviews[id]=review;
+ renderDashboard();
+});
 $("dashExportHtml").onclick=exportDashboardHTML;
 $("dashSearch").oninput=renderDashboardSelections;
 $("dashFamily").onchange=renderDashboardSelections;
@@ -762,7 +815,7 @@ $("exportBundle").onclick=makeEnrichedPackage;
 $("exportSession").onclick=saveSessionJSON;
 $("exportSessionGzip").onclick=saveCompressedSessionJSON;
 $("importBundle").onclick=importEnrichedPackage;
-$("importSession").onclick=importSessionJSON;
+$("importSession").onclick=()=>importSessionJSON("fileSession");
 $("exportLifecycle").onclick=saveLifeReport;
 $("exportLifeQuick").onclick=saveLifeReport;
 $("lifeAllowWeak").onchange=renderLifecycle;
@@ -770,7 +823,7 @@ $("lifeAsOf").onchange=renderLifecycle;
 $("lifeAssetFilter").oninput=renderLifecycle;
 $("resetAll").onclick=()=>{
  if(!confirm("Apagar as bases carregadas nesta aba? Exporte um backup JSON antes de limpar."))return;
- state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];state.dashboardExcluded.clear();
+ state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];state.dashboardExcluded.clear();state.dashboardReviews={};
  log("Sessão de dados limpa; backup não é gerado automaticamente.");rebuild();
 };
 rebuild();
