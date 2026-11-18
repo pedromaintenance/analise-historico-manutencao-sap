@@ -346,6 +346,7 @@ export function generateStandaloneDashboard(data,{includeOther=true,reviews={}}=
   generateStandaloneDashboard.toString(),offlineReviewRuntime.toString(),
   "offlineReviewRuntime();"
  ].join("\n");
+ const safeHelpers=helperSource.replace(/<\/script/gi,"<\\/script");
  const css="body{margin:0;background:#eff4f6;font:14px Segoe UI,Arial,sans-serif;color:#173042}"+
  ".shell{max-width:1550px;margin:auto;padding:22px}"+
  ".mast{background:#073d51;color:#fff;padding:26px 24px;border-bottom:5px solid #c3942c}"+
@@ -379,5 +380,5 @@ export function generateStandaloneDashboard(data,{includeOther=true,reviews={}}=
  '<div id="report">'+renderDashboardCards(reviewed,{includeOther,editable:true})+'</div></main>'+
  '<script id="report-data" type="application/json">'+safeJSON(data)+'</script>'+
  '<script id="review-data" type="application/json">'+safeJSON(exportReviewFile(choices))+'</script>'+
- '<script>'+helperSource+'</script></body></html>';
+ '<script>'+safeHelpers+'</script></body></html>';
 }
