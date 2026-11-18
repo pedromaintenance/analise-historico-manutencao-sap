@@ -23,9 +23,14 @@ export function buildDashboardData(lifecycle,{excluded=[],includeAll=true,create
   const cycles=(lifecycle.cycles||[]).filter(c=>toText(c.equipment||c.objectId||c.tag)===id||(!c.equipment&&c.asset===m.asset));
   const knownFirst=cycles.filter(c=>toText(c.cycleType||c.kind).toLowerCase().includes("primeira")&&Number.isFinite(Number(c.days??c.elapsedDays))&&toText(c.days??c.elapsedDays)!=="").map(c=>Number(c.days??c.elapsedDays));
   const subsequent=cycles.filter(c=>toText(c.cycleType||c.kind).toLowerCase().includes("subsequente")&&Number.isFinite(Number(c.days??c.elapsedDays))&&toText(c.days??c.elapsedDays)!=="").map(c=>Number(c.days??c.elapsedDays));
-  const stat=subsequent.length?median(subsequent):knownFirst.length?median(knownFirst):null;
-  const statKind=subsequent.length?"Mediana entre substituições":knownFirst.length?"Tempo até 1ª troca (estimado)":"Sem ciclo estimável";
-  const acceptedOS=new Set(cycles.map(c=>toText(c.order)).filter(Boolean));
+  const firstEventDays=machineEvents.map(x=>x.firstElapsedDays).filter(x=>x!=null&&Number.isFinite(+x)).map(Number);
+  const stat=subsequent.length?median(subsequent):knownFirst.length?median(knownFirst):firstEventDays.length?Math.min(...firstEventDays):null;
+  const statKind=subsequent.length?"Mediana entre substituições":knownFirst.length?"Tempo até 1ª troca (estimado)":firstEventDays.length?"Tempo até primeira intervenção integral (estimado)":"Sem ciclo estimável";
+  const approvedAudit=[...unique.values()].filter(a=>a.accepted==="SIM");
+  const acceptedOS=new Set([...cycles.map(c=>toText(c.order)),
+    ...approvedAudit.map(a=>toText(a.order))].filter(Boolean));
+  const machineEvents=(lifecycle.equipmentEvents||[]).filter(x=>
+    toText(x.equipment||x.tag)===id||(!x.equipment&&x.asset===m.asset));
   const materialDetails=(lifecycle.materialDetails||[]).filter(x=>toText(x.equipment||x.objectId||x.tag)===id||(!x.equipment&&x.asset===m.asset));
   const materialByOrder=new Map();
   for(const r of materialDetails){const os=toText(r.order);if(!materialByOrder.has(os))materialByOrder.set(os,[]);materialByOrder.get(os).push({
@@ -42,6 +47,9 @@ export function buildDashboardData(lifecycle,{excluded=[],includeAll=true,create
      costPlanned:Number(a.costPlanned??a.planned??0)||0,
      classification:toText(a.operationClass||a.classification),status:toText(a.status),
      evidence:toText(a.evidence||a.confidence),reason:toText(a.reason||a.justification),
+     materialEvidence:toText(a.materialEvidence),materialFamilies:toText(a.materialFamilies),
+     supportingOrders:toText(a.supportingOrders),
+     scopeEvidence:toText(a.scopeEvidence),
      isChange:acceptedOS.has(os),side:toText(a.side),materials,
      materialCount:materials.length||Number(a.reserveCount??a.materialCount??0)||0
     };
@@ -52,7 +60,7 @@ export function buildDashboardData(lifecycle,{excluded=[],includeAll=true,create
    id,equipment:toText(m.equipment||""),tag:toText(m.tag),asset:toText(m.asset),
    family:toText(m.family),model:inferEquipmentModel(m.asset,m.model),
    operationalStart,operationalSource,days:stat,daysKind:statKind,
-   intervalCount:subsequent.length,firstCount:knownFirst.length,
+   intervalCount:subsequent.length,firstCount:knownFirst.length||firstEventDays.length,
    changeOrders:acceptedOS.size,trackedSides:cycles.length,
    orders,selected:!excludedIds.has(id),
    noChangeMessage:acceptedOS.size?"":"Nenhuma troca de conjunto qualificada no recorte; ordens de inspeção e reparo permanecem para consulta."
@@ -86,6 +94,7 @@ export const DASHBOARD_STYLE=[
 ".report-app tr:hover td{background:#f7fafb}",
 ".report-app .report-pill{font-size:11px;display:inline-block;padding:3px 9px;border-radius:99px;background:#eaf5ed;color:#166949;font-weight:800}",
 ".report-app .report-pill.review{background:#fff1dd;color:#8d6322}",
+".report-app .report-evidence{display:block;white-space:normal;color:#56717e;font-size:11px;margin-top:5px;min-width:180px;max-width:310px}",
 ".report-app details summary{cursor:pointer;color:#005471;font-weight:750;white-space:nowrap;list-style:none}",
 ".report-app details summary::before{content:'▸ ';color:#c3942c}.report-app details[open] summary::before{content:'▾ '}",
 ".report-app .report-materials{margin-top:10px;max-width:540px;border:1px solid #d8e5e9;border-radius:8px;overflow:auto;max-height:240px}",
@@ -117,7 +126,9 @@ export function renderDashboardCards(data,{includeOther=false}={}){
     '<td class="description">'+escapeHtml(o.description)+'</td>'+
     '<td>'+dateBR(o.dateBase)+'</td><td>'+dateBR(o.faultEnd)+'</td><td>'+dateBR(o.entry)+'</td>'+
     '<td>'+money(o.costReal)+'</td>'+
-    '<td><span class="report-pill'+(o.isChange?'':' review')+'">'+(o.isChange?'Troca candidata':'Revisar / outro serviço')+'</span></td>'+
+    '<td><span class="report-pill'+(o.isChange?'':' review')+'">'+(o.isChange?'Provável troca integral':'Revisar / outro serviço')+'</span>'+
+     '<small class="report-evidence">'+escapeHtml(o.materialEvidence||o.evidence)+
+     (o.supportingOrders?' · OS associada: '+escapeHtml(o.supportingOrders):'')+'</small></td>'+
     '<td><details><summary>Materiais ('+o.materialCount+')</summary><div class="report-materials">'+materialContent+'</div></details></td></tr>';
   }).join('');
   const table='<div class="report-table-scroller"><table><thead><tr><th>Ordem SAP</th><th>Descrição da OS</th><th>Data-base</th><th>Fim da avaria</th><th>Entrada</th><th>Custo total da OS*</th><th>Classificação</th><th>Detalhes</th></tr></thead><tbody>'+body+'</tbody></table></div>';
