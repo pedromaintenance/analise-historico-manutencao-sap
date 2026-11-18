@@ -789,6 +789,26 @@ export function analyzeLifecycle(model,{
 
   }
 
+  const equipmentEvents=acceptedRecords.map(record=>{
+    const machine=machines.get(record.objectId);
+    const start=machine?.commissioned||machine?.acquisition||"";
+    const elapsed=start&&record.dateReference>=start?diffDays(start,record.dateReference):null;
+    const peers=audit.filter(x=>x.objectId===record.objectId&&x.costReal>0)
+      .map(x=>x.costReal);
+    const baseline=median(peers);
+    return {
+      equipment:record.equipment,asset:record.asset,tag:record.tag,family:record.family,
+      order:record.order,relatedOrders:record.supportingOrders,
+      description:record.description,side:record.side,sideEvidence:record.sideEvidence,
+      date:record.dateReference,dateSource:record.referenceSource,
+      firstElapsedDays:elapsed,firstElapsedOrigin:machine?.commissioned
+        ?"Entrada em serviço":"Aquisição (aproximada)",
+      materialEvidence:record.materialEvidence,materialFamilies:record.materialFamilies,
+      costReal:record.costReal,costMedianPeers:baseline,
+      costRatio:baseline>0?record.costReal/baseline:null,
+      conclusion:"Possível troca integral — escopo, conjunto de materiais e custo compatíveis; validar baixa e execução"
+    };
+  });
   const groups=new Map();
   for(const x of valid){
     const id=x.objectId+"|"+x.side;
@@ -856,30 +876,36 @@ export function analyzeLifecycle(model,{
     const machineAudit=audit.filter(x=>x.objectId===machine.id);
     const acceptedAudit=machineAudit.filter(x=>x.accepted==="SIM");
     const withoutSide=acceptedAudit.filter(x=>x.side==="não informado").length;
+    const machineEvents=equipmentEvents.filter(x=>x.asset===machine.name&&x.equipment===machine.equipment);
+    machineEvents.sort((a,b)=>a.date.localeCompare(b.date));
+    const firstMachineEvent=machineEvents[0];
     const allCandidateOrders=[...new Set(machineAudit.filter(x=>x.operationClass==="troca de esteira / conjunto").map(x=>x.order))];
     totalCost=machineAudit.reduce((sum,x)=>sum+x.costReal,0);
     equipmentSummary.push({
       equipment:machine.equipment,asset:machine.name,tag:machine.tag,family:machine.family,
       commissioning:machine.commissioned,acquisition:machine.acquisition,
-      acceptedOrders:orderSet.size,observedSides:totalEvents,
+      acceptedOrders:acceptedAudit.length,observedSides:totalEvents,
+      firstQualifiedOrder:firstMachineEvent?.order||"",
+      firstQualifiedDate:firstMachineEvent?.date||"",
+      firstElapsedDays:firstMachineEvent?.firstElapsedDays??"",
       subsequentIntervals:completed,meanDays:intervalDays.length?mean(intervalDays):"",
       firstLifeEstimates:initialEstimates,withoutSide,
       candidateOrders:allCandidateOrders.join("; "),
-      acceptedOrderNumbers:[...orderSet].join("; "),
+      acceptedOrderNumbers:acceptedAudit.map(x=>x.order).join("; "),
       costOfRelatedOrders:totalCost,
-      status:totalEvents?"Com trocas candidatas":"Sem troca completa validada no recorte"
+      status:acceptedAudit.length?"Com provável troca completa auditável":"Sem troca completa validada no recorte"
     });
   }
   equipmentSummary.sort((a,b)=>a.family.localeCompare(b.family,"pt-BR")||a.asset.localeCompare(b.asset,"pt-BR"));
   cycles.sort((a,b)=>a.family.localeCompare(b.family,"pt-BR")||a.asset.localeCompare(b.asset,"pt-BR")||
     a.side.localeCompare(b.side,"pt-BR")||a.sequence-b.sequence);
   audit.sort((a,b)=>a.asset.localeCompare(b.asset,"pt-BR")||a.dateReference.localeCompare(b.dateReference)||a.order.localeCompare(b.order));
-  return {equipmentSummary,cycles,audit,materialDetails,openCycles:timeline,
+  return {equipmentSummary,cycles,audit,materialDetails,equipmentEvents,openCycles:timeline,
     metrics:{trackedEquipment:machines.size,ordersAudited:audit.length,
-      approvedOrders:new Set(valid.map(x=>x.order)).size,
+      approvedOrders:new Set(acceptedRecords.map(x=>x.order)).size,
       closedIntervals:cycles.filter(x=>x.cycleType==="Troca subsequente"&&x.days!=="").length,
       firstEstimates:cycles.filter(x=>x.cycleType==="Primeira troca observada"&&x.days!=="").length,
-      missingSide:audit.filter(x=>x.reason==="Troca candidata, lado não informado").length}
+      missingSide:acceptedRecords.filter(x=>x.side==="não informado").length}
   };
 }
 
