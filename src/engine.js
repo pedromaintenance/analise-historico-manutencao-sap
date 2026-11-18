@@ -696,19 +696,19 @@ export function analyzeLifecycle(model,{
     }));
     const isWhole=a.operationClass==="troca de esteira / conjunto";
     const statusReliable=a.eventStrong;
-    const accepted=isWhole&&a.isCandidate&&a.reference&&(!asOf||a.reference<=asOf)
+    const accepted=isWhole&&a.isCandidate&&a.eventDate&&(!asOf||a.eventDate<=asOf)
       &&!a.cancelled&&(statusReliable||allowWeak);
     let reason="";
     if(!isWhole)reason="O serviço não é troca completa da esteira";
     else if(a.cancelled)reason="Status de cancelamento";
-    else if(!a.reference)reason="Sem referência cronológica";
-    else if(asOf&&a.reference>asOf)reason="Intervenção com data futura";
-    else if(!statusReliable&&!allowWeak)reason="Evidência insuficiente (conferir OS e baixa)";
+    else if(!a.eventDate)reason="Sem referência cronológica";
+    else if(asOf&&a.eventDate>asOf)reason="Intervenção com data futura";
+    else if(!statusReliable&&!allowWeak)reason="Escopo de conjunto sem kit MB24 e custo real suficientes";
     else if(a.side==="não informado")reason="Troca candidata, lado não informado";
     else reason="Elegível para reconstrução de ciclo";
     for(const res of reserveList)materialDetails.push({
       equipment:e?.id||"",asset:label,order:o.id,
-      dateReference:a.reference,side:a.side,operationClass:a.operationClass,
+      dateReference:a.eventDate,side:a.side,operationClass:a.operationClass,
       reservation:res.reservation,material:res.material||"SEM CÓDIGO",
       description:res.description,required:res.qty,unit:res.unit,
       deleted:res.deleted,finalFlag:res.finalFlag,
@@ -720,22 +720,73 @@ export function analyzeLifecycle(model,{
       order:o.id,notes:(o.notes||[]).map(x=>x.id).filter(Boolean).join("; "),
       description:o.description,side:a.side,component:a.component,
       operationClass:a.operationClass,status:o.sys,evidence:a.evidenceLevel,
-      accepted:accepted&&a.side!=="não informado"?"SIM":"NÃO",reason,
+      accepted:accepted?"SIM":"NÃO",reason,
+      materialEvidence:a.materialSignature.reason,
+      materialFamilies:a.materialSignature.categories.join("; "),
+      scopeEvidence:a.explicitWhole?"Escopo completo declarado":a.wholeScope?"Intervenção em esteira/conjunto":"Componente ou outro serviço",
+      supportingOrders:"",sideEvidence:"Texto da OS",
       dateBase:a.dateBase,faultEnd:a.faultEnd,entry:a.entry,
-      dateReference:a.reference,referenceSource:a.source,
+      dateReference:a.eventDate,referenceSource:a.eventDateSource,
       costReal:a.costReal,costPlanned:a.costPlanned,
       reserveCount:reserveList.length,
       reservedMaterials:reserveList.map(x=>x.material||("SEM COD: "+x.description)).join("; ")
     };
     audit.push(record);
-    if(accepted){
-      if(a.side==="ambos"){
-        valid.push({...record,side:"direito",originSide:"ambos"});
-        valid.push({...record,side:"esquerdo",originSide:"ambos"});
-      }else if(a.side!=="não informado"){
-        valid.push({...record,originSide:a.side});
+
+  }
+
+  // Uma OS principal com materiais/custo pode estar vinculada a outra OS de
+  // escopo explícito. A associação exige MESMO ativo e sinais documentais,
+  // e nunca cria nova troca a partir da OS de apoio.
+  for(const record of audit){
+    if(record.accepted!=="SIM"||!record.evidence.startsWith("alta"))continue;
+    const related=audit.filter(other=>other.objectId===record.objectId&&
+      other.order!==record.order&&other.accepted!=="SIM"&&
+      other.operationClass==="troca de esteira / conjunto"&&other.costReal===0);
+    const sameEnd=related.filter(other=>record.faultEnd&&
+      other.faultEnd===record.faultEnd);
+    let supports=sameEnd;
+    if(!supports.length&&!record.faultEnd){
+      // No intervalo curto, uma OS de substituição pode documentar a data
+      // mais recente de montagem enquanto a OS com BOM concentra o custo.
+      const candidates=related.filter(other=>
+        other.dateBase&&record.dateBase&&
+        other.dateBase>=record.dateBase&&
+        diffDays(record.dateBase,other.dateBase)<=45&&
+        (!asOf||other.dateBase<=asOf)&&
+        /\b(SUBSTITUICAO|SUBSTITUIR|TROCA|TROCAR)\b/.test(key(other.description)));
+      candidates.sort((a,b)=>diffDays(record.dateBase,a.dateBase)-
+        diffDays(record.dateBase,b.dateBase));
+      supports=candidates.slice(0,1);
+      if(supports.length){
+        record.dateReference=supports[0].dateBase;
+        record.referenceSource="Data-base de OS relacionada (inferência; validar)";
       }
     }
+    if(supports.length){
+      record.supportingOrders=supports.map(x=>x.order).join("; ");
+      if(record.side==="não informado"){
+        const explicit=supports.find(x=>x.side!=="não informado");
+        if(explicit){
+          record.side=explicit.side;
+          record.sideEvidence="OS relacionada "+explicit.order;
+        }
+      }
+    }
+  }
+
+  // Separar evento por ordem (máquina) e ciclos físicos por lado.
+  // A OS sem lado continua contabilizada no equipamento, mas não inventamos
+  // dois conjuntos independentes e não calculamos intervalos por lado.
+  const acceptedRecords=audit.filter(r=>r.accepted==="SIM");
+  for(const record of acceptedRecords){
+    if(record.side==="ambos"){
+      valid.push({...record,side:"direito",originSide:"ambos"});
+      valid.push({...record,side:"esquerdo",originSide:"ambos"});
+    }else if(record.side!=="não informado"){
+      valid.push({...record,originSide:record.side});
+    }
+
   }
 
   const groups=new Map();
