@@ -73,3 +73,17 @@ A nova aba **05 · Dashboard** transforma o ciclo de vida da tela 04 em um relat
 **CONFIDENCIALIDADE:** o HTML exportado contém as ordens, valores e materiais das máquinas selecionadas. Não publique os arquivos gerados no repositório, GitHub Pages ou serviços externos. A versão pública contém apenas o gerador sem dados.
 
 Para reabrir as seleções sem repetir cargas, exporte a sessão JSON (normal ou GZIP) após marcar as máquinas e restaure-a na próxima visita.
+
+## Revisão de precisão — assinatura do material rodante
+
+A classificação de possível substituição integral exige **três evidências combinadas**, sem relaxar o filtro:
+
+1. Escopo coerente: montagem ou substituição da esteira, esteira completa, backlog de material rodante completo, ou material rodante com conjunto identificado.
+2. Assinatura da MB24: **corrente/conjunto de elos/lagarta mais pelo menos duas famílias complementares** (sapatas, fixadores em quantidade expressiva, roletes, roda-guia ou roda motriz). Parafusos, tensores ou roletes isolados continuam como serviços parciais.
+3. Custo real positivo e ausência de cancelamento. O custo absoluto ou relativo nunca é prova isolada de substituição.
+
+A coluna **Qtd. UM registro** passa a ser considerada mesmo quando **Item foi eliminado = X**: essa indicação administrativa não elimina a evidência quantitativa. O registro na MB24 ainda não equivale a comprovação física de saída ou instalação.
+
+A análise separa **OS principal** com composição de materiais/custo, **OS de apoio** do mesmo equipamento com escopo ou data, e serviços parciais. Se a OS principal não tem Fim da avaria, uma OS explícita de substituição sem custo pode ser associada no intervalo de até 45 dias após o planejamento. O dashboard informa quando a data é inferida dessa OS, sem duplicar o evento.
+
+A validação utiliza testes sintéticos de casos positivos e negativos. O código publicado não contém ordens, materiais ou valores corporativos.
