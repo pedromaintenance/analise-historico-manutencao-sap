@@ -430,8 +430,9 @@ export function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancel
  const side=both?"ambos":right?"direito":left?"esquerdo":"não informado";
  // O texto pode declarar o escopo completo mesmo que tenha sido aberto como BACKLOG.
  // A BOM e a contabilização qualificam a execução separadamente.
- const wholeScope=Boolean(component&&!namedPartial&&!logistics&&
-    (explicitWhole||(trackText&&assembly)||(signature.complete&&trackText)));
+ const wholeScope=Boolean(component&&!logistics&&
+    (explicitWhole||(trackText&&(assembly||signature.complete)&&
+      (!namedPartial||signature.complete))));
  const operationClass=cancelled?"cancelado / não executado":
    logistics?"materiais / logística":
    wholeScope?"troca de esteira / conjunto":
@@ -714,7 +715,7 @@ export function analyzeLifecycle(model,{
     else if(!a.eventDate)reason="Sem referência cronológica";
     else if(asOf&&a.eventDate>asOf)reason="Intervenção com data futura";
     else if(!statusReliable&&!allowWeak)reason="Escopo de conjunto sem kit MB24 e custo real suficientes";
-    else if(a.side==="não informado")reason="Troca candidata, lado não informado";
+    else if(a.side==="não informado")reason="Provável troca integral; lado não informado — sem intervalos por lado";
     else reason="Elegível para reconstrução de ciclo";
     for(const res of reserveList)materialDetails.push({
       equipment:e?.id||"",asset:label,order:o.id,
