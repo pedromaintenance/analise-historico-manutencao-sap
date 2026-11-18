@@ -1984,7 +1984,8 @@ async function saveCompressedSessionJSON(){
  const rows=ROLES.reduce((sum,role)=>sum+state.bases[role].length,0);
  if(!rows)return log("Sem dados para salvar.");
  if(typeof CompressionStream==="undefined"){
-  log("Seu navegador não suporta compactação nativa: exporte o JSON normal.");return;
+  log("Compactação GZIP indisponível: exportando JSON completo sem compactação.");
+  saveSessionJSON();return;
  }
  const data=serializeSession(state.bases,state.loaded,sessionSettings());
  const blob=new Blob([JSON.stringify(data)],{type:"application/json"});
