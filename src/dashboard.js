@@ -73,6 +73,98 @@ export function buildDashboardData(lifecycle,{excluded=[],includeAll=true,create
   machines:includeAll?machines:machines.filter(m=>m.selected)};
 }
 
+
+/** Identificador estável de decisão: mesmo código de OS pode existir em ativos distintos. */
+export function reviewOrderKey(assetId,orderId) {
+ return String(assetId)+"|"+String(orderId);
+}
+export function normalizeReviewDecisions(raw) {
+ if(!raw||typeof raw!=="object"||Array.isArray(raw))return {};
+ const out={},validSides=new Set(["não informado","direito","esquerdo","ambos"]);
+ let count=0;
+ for(const [id,v] of Object.entries(raw)){
+  if(++count>100000)throw new Error("Arquivo de revisões excede limite de decisões.");
+  if(typeof id!=="string"||!id.includes("|")||id.length>250||!v||typeof v!=="object"||Array.isArray(v))continue;
+  const d={};
+  if(typeof v.selected==="boolean")d.selected=v.selected;
+  if(typeof v.side==="string"&&validSides.has(v.side))d.side=v.side;
+  if(typeof v.date==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(v.date))d.date=v.date;
+  if(typeof v.note==="string")d.note=v.note.slice(0,1000);
+  if(Object.keys(d).length)out[id]=d;
+ }
+ return out;
+}
+export function exportReviewFile(reviews) {
+ return {format:"sap-rodante-reviews",version:1,
+  exportedAt:new Date().toISOString(),reviews:normalizeReviewDecisions(reviews)};
+}
+export function importReviewFile(file) {
+ if(!file||file.format!=="sap-rodante-reviews"||file.version!==1)
+  throw new Error("Arquivo de decisões incompatível.");
+ return normalizeReviewDecisions(file.reviews);
+}
+function isoToDay(value) {
+ const v=toText(value),m=v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+ if(!m)return null;
+ const ts=Date.UTC(Number(m[1]),Number(m[2])-1,Number(m[3]));
+ const d=new Date(ts);
+ return d.toISOString().slice(0,10)===v?ts/86400000:null;
+}
+/** Recalcula indicadores SEM depender da classificação rígida.
+ * A revisão do analista substitui só a aceitação, data e lado informados,
+ * conservando classificações e evidências originais para comparação.
+ */
+export function recalculateReviewedDashboard(data,reviews={}) {
+ const decisions=normalizeReviewDecisions(reviews);
+ const result={...data,machines:(data.machines||[]).map(m=>{
+  const orders=(m.orders||[]).map(o=>{
+    const id=reviewOrderKey(m.id,o.order),manual=decisions[id]||{};
+    const selected=typeof manual.selected==="boolean"?manual.selected:Boolean(o.isChange);
+    const side=manual.side||o.side||"não informado";
+    const date=manual.date||o.dateReference||o.faultEnd||o.dateBase||o.entry||"";
+    return {...o,reviewKey:id,selected,side,date,
+      reviewNote:manual.note||"",reviewStatus:typeof manual.selected==="boolean"?"Decisão manual":"Sugestão automática"};
+  });
+  const chosen=orders.filter(x=>x.selected);
+  const timeline={direito:[],esquerdo:[]};
+  const seen=new Set();
+  for(const o of chosen) {
+    if(seen.has(o.order))continue;
+    seen.add(o.order);
+    const day=isoToDay(o.date);
+    if(day===null)continue;
+    const sides=o.side==="ambos"?["direito","esquerdo"]:[o.side];
+    for(const side of sides)if(timeline[side])timeline[side].push({day,order:o.order});
+  }
+  let intervalCount=0;
+  const periods=[];
+  for(const side of ["direito","esquerdo"]){
+    const sorted=timeline[side].sort((a,b)=>a.day-b.day||a.order.localeCompare(b.order));
+    for(let i=1;i<sorted.length;i++){
+      const span=sorted[i].day-sorted[i-1].day;
+      if(span>0){periods.push(span);intervalCount++;}
+    }
+  }
+  const startDay=isoToDay(m.operationalStart);
+  const allDated=chosen.map(x=>isoToDay(x.date)).filter(x=>x!==null);
+  const firstDay=allDated.length?Math.min(...allDated):null;
+  const firstAge=startDay!==null&&firstDay!==null&&firstDay>=startDay?firstDay-startDay:null;
+  const computedDays=periods.length?median(periods):firstAge;
+  const kind=periods.length?"Mediana entre trocas revisadas (por lado)":
+    firstAge!==null?"Tempo desde "+(m.operationalSource?.startsWith("Aquisição")?"aquisição":"início em serviço")+
+      " até 1ª OS de troca revisada":"Sem ciclo estimável";
+  const manualCount=orders.filter(x=>x.reviewStatus==="Decisão manual").length;
+  const totalCost=chosen.reduce((sum,x)=>sum+(Number(x.costReal)||0),0);
+  return {...m,orders,days:computedDays,daysKind:kind,
+   changeOrders:chosen.length,intervalCount,firstCount:firstAge!==null?1:0,
+   trackedSides:timeline.direito.length+timeline.esquerdo.length,
+   reviewedOrders:manualCount,reviewedCostTotal:totalCost,
+   firstDate:firstDay===null?"":new Date(firstDay*86400000).toISOString().slice(0,10),
+   noChangeMessage:chosen.length?"":"Nenhuma OS marcada como troca nesta revisão."};
+ })};
+ return result;
+}
+
 export const DASHBOARD_STYLE=[
 ".report-app{font-family:Segoe UI,Arial,sans-serif;color:#173042;font-size:14px;line-height:1.52}",
 ".report-app *{box-sizing:border-box}.report-app .report-grid{display:grid;gap:16px}",
