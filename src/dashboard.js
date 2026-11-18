@@ -189,6 +189,11 @@ export const DASHBOARD_STYLE=[
 ".report-app .report-pill{font-size:11px;display:inline-block;padding:3px 9px;border-radius:99px;background:#eaf5ed;color:#166949;font-weight:800}",
 ".report-app .report-pill.review{background:#fff1dd;color:#8d6322}",
 ".report-app .report-evidence{display:block;white-space:normal;color:#56717e;font-size:11px;margin-top:5px;min-width:180px;max-width:310px}",
+".report-app .report-edit{min-width:190px;display:grid;gap:5px;font-size:11px;color:#526875}",
+".report-app .report-edit label{display:flex;align-items:center;gap:6px;white-space:normal}",
+".report-app .report-edit select,.report-app .report-edit input[type=date],.report-app .report-edit input[type=text]{border:1px solid #cadce4;border-radius:5px;padding:5px;font:inherit;max-width:215px}",
+".report-app .report-edit .report-change-check{width:16px;height:16px;accent-color:#005471}",
+".report-app .report-tr-change td{background:#f1faf6}",
 ".report-app details summary{cursor:pointer;color:#005471;font-weight:750;white-space:nowrap;list-style:none}",
 ".report-app details summary::before{content:'▸ ';color:#c3942c}.report-app details[open] summary::before{content:'▾ '}",
 ".report-app .report-materials{margin-top:10px;max-width:540px;border:1px solid #d8e5e9;border-radius:8px;overflow:auto;max-height:240px}",
@@ -202,7 +207,7 @@ export const DASHBOARD_STYLE=[
 "@media print{.report-app .report-machine{break-inside:avoid;box-shadow:none;margin-bottom:10px}.report-app details:not([open]) .report-materials{display:none}}"
 ].join("");
 
-export function renderDashboardCards(data,{includeOther=false}={}){
+export function renderDashboardCards(data,{includeOther=false,editable=true}={}){
  if(!data||!Array.isArray(data.machines))throw new Error("Dados do dashboard inválidos.");
  const visible=data.machines.filter(m=>m.selected!==false);
  const head='<div class="report-app'+(includeOther?' report-show-other':'')+'"><div class="report-grid">';
@@ -210,30 +215,36 @@ export function renderDashboardCards(data,{includeOther=false}={}){
   const start=m.operationalStart?dateBR(m.operationalStart):"Não disponível";
   const source=m.operationalStart?m.operationalSource:"Sem data de entrada em serviço ou aquisição";
   const body=m.orders.map(o=>{
+   const checked=o.selected??o.isChange;
    const rows=o.materials||[];
    const materialContent=rows.length?
     '<table><thead><tr><th>Reserva</th><th>Material</th><th>Descrição</th><th>Qtd.</th><th>UM</th></tr></thead><tbody>'+
     rows.map(r=>'<tr><td>'+escapeHtml(r.reservation)+'</td><td>'+escapeHtml(r.material)+'</td><td>'+escapeHtml(r.description)+'</td><td>'+escapeHtml(r.qty)+'</td><td>'+escapeHtml(r.unit)+'</td></tr>').join('')+
     '</tbody></table>':
     '<p>Não há itens de reserva nesta exportação. Isso não demonstra ausência de material aplicado.</p>';
-   return '<tr class="'+(o.isChange?'report-change':'report-other')+'"><td><strong>'+escapeHtml(o.order)+'</strong></td>'+
+   const choice=editable?'<div class="report-edit"><label><input class="report-change-check" data-review-select type="checkbox"'+(checked?' checked':'')+'> Conta como troca</label>'+
+    '<label>Lado <select data-review-side>'+["não informado","direito","esquerdo","ambos"].map(v=>'<option value="'+v+'"'+((o.side||"não informado")===v?' selected':'')+'>'+escapeHtml(v)+'</option>').join("")+'</select></label>'+
+    '<label>Data do evento <input data-review-date type="date" value="'+escapeHtml(o.date||o.dateReference||"")+'"></label>'+
+    '<label>Justificativa <input data-review-note type="text" maxlength="1000" value="'+escapeHtml(o.reviewNote||"")+'" placeholder="Evidência observada"></label></div>':"";
+   return '<tr data-order="'+escapeHtml(o.order)+'" class="'+(checked?'report-change report-tr-change':'report-other')+'"><td><strong>'+escapeHtml(o.order)+'</strong></td>'+
     '<td class="description">'+escapeHtml(o.description)+'</td>'+
     '<td>'+dateBR(o.dateBase)+'</td><td>'+dateBR(o.faultEnd)+'</td><td>'+dateBR(o.entry)+'</td>'+
     '<td>'+money(o.costReal)+'</td>'+
-    '<td><span class="report-pill'+(o.isChange?'':' review')+'">'+(o.isChange?'Provável troca integral':'Revisar / outro serviço')+'</span>'+
+    '<td><span class="report-pill'+(checked?'':' review')+'">'+(checked?'Conta como troca':'Não conta como troca')+'</span>'+
      '<small class="report-evidence">'+escapeHtml(o.materialEvidence||o.evidence)+
      (o.supportingOrders?' · OS associada: '+escapeHtml(o.supportingOrders):'')+
-     (o.isChange&&o.eventDateSource?' · Data: '+escapeHtml(o.eventDateSource):'')+'</small></td>'+
-    '<td><details><summary>Materiais ('+o.materialCount+')</summary><div class="report-materials">'+materialContent+'</div></details></td></tr>';
+     (o.isChange&&o.eventDateSource?' · Data: '+escapeHtml(o.eventDateSource):'')+
+     ' · '+escapeHtml(o.reviewStatus||'Sugestão automática')+'</small></td>'+
+    '<td>'+choice+'</td><td><details><summary>Materiais ('+o.materialCount+')</summary><div class="report-materials">'+materialContent+'</div></details></td></tr>';
   }).join('');
-  const table='<div class="report-table-scroller"><table><thead><tr><th>Ordem SAP</th><th>Descrição da OS</th><th>Data-base</th><th>Fim da avaria</th><th>Entrada</th><th>Custo total da OS*</th><th>Classificação</th><th>Detalhes</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+  const table='<div class="report-table-scroller"><table><thead><tr><th>Ordem SAP</th><th>Descrição da OS</th><th>Data-base</th><th>Fim da avaria</th><th>Entrada</th><th>Custo total da OS*</th><th>Classificação</th><th>Revisão do analista</th><th>Detalhes</th></tr></thead><tbody>'+body+'</tbody></table></div>';
   return '<section class="report-machine" data-asset="'+escapeHtml(m.id)+'" data-search="'+escapeHtml([m.tag,m.family,m.model,m.asset,m.equipment].join(' ').toLowerCase())+'">'+
    '<header class="report-machine-header"><div><div class="report-type">'+escapeHtml(m.family)+' · '+escapeHtml(m.model)+'</div>'+
    '<div class="report-tag">'+escapeHtml(m.tag||m.equipment||m.asset)+'</div>'+
    '<div class="report-name">'+escapeHtml(m.asset)+'</div></div>'+
    '<div class="report-sub">Início de operação aproximado: <strong>'+escapeHtml(start)+'</strong><div>'+escapeHtml(source)+'</div></div></header>'+
    '<div class="report-kpis"><div class="report-kpi"><div class="value">'+(m.days==null?'—':days(m.days)+' dias')+'</div><div class="label">'+escapeHtml(m.daysKind)+'</div></div>'+
-   '<div class="report-kpi"><div class="value">'+m.changeOrders+'</div><div class="label">Ordens de substituição candidatas ('+m.trackedSides+' lado(s) observado(s))</div></div></div>'+
+   '<div class="report-kpi"><div class="value">'+m.changeOrders+'</div><div class="label">Ordens marcadas como troca ('+m.trackedSides+' eventos por lado identificado)</div></div></div>'+
    '<div class="report-note">Equipamento SAP: '+escapeHtml(m.equipment||'não localizado')+' · '+m.intervalCount+' intervalo(s) entre trocas consecutivas'+
    (m.firstCount?' · '+m.firstCount+' primeira(s) troca(s) estimada(s)':'')+'</div>'+
    (m.noChangeMessage?'<div class="report-nochange">'+escapeHtml(m.noChangeMessage)+'</div>':'')+
