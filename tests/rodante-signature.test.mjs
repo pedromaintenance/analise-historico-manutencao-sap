@@ -124,3 +124,29 @@ test("serviço genérico de transporte não é kit de substituição",()=>{
  assert.equal(classifyRodante(m.orders[0]).eventStrong,false);
  assert.equal(analyzeLifecycle(m,{asOf:"2026-11-18"}).metrics.approvedOrders,0);
 });
+
+test("item de reserva marcado eliminado continua quando quantidade registrada foi positiva",()=>{
+ const os="OS-SYNTH-POSTED";
+ const posted=kit(os).map(r=>({
+   ...r,"Item foi eliminado":"X","Com registro final":"X",
+   "Qtd.  UM registro":r["Qtd.necessária"]
+ }));
+ const m=createModel({equipment:equip(),orders:[
+  row(os,"MONTAGEM DA ESTEIRA","2025-04-09",265000)
+ ],reservations:posted});
+ const a=classifyRodante(m.orders[0]);
+ assert.equal(a.materialSignature.complete,true);
+ assert.equal(a.materialSignature.postedCore,true);
+ assert.equal(a.materialSignature.postedRows,6);
+ assert.equal(a.eventStrong,true);
+ assert.match(a.evidenceLevel,/materiais registrados/);
+});
+test("posição eliminada sem quantidade registrada não comprova montagem",()=>{
+ const os="OS-SYNTH-DELETED";
+ const cancelledItems=kit(os).map(r=>({...r,"Item foi eliminado":"X","Qtd.  UM registro":0}));
+ const m=createModel({equipment:equip(),orders:[
+   row(os,"MONTAGEM DA ESTEIRA","2025-04-09",265000)
+ ],reservations:cancelledItems});
+ assert.equal(classifyRodante(m.orders[0]).materialSignature.complete,false);
+ assert.equal(classifyRodante(m.orders[0]).eventStrong,false);
+});
