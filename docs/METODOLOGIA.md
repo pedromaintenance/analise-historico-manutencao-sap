@@ -85,3 +85,18 @@ O pacote Excel multiabas preserva os campos originais de cada fonte e uma coluna
 **Sem lado:** um conjunto completo com prova econômica/material é contado como uma intervenção por OS, sem inventar dois ciclos individuais direito/esquerdo.
 
 **Limite:** o algoritmo identifica provável substituição integral sustentada por documentação, não confirmação absoluta de instalação ou vida operacional em horas. Não divulgar dados da empresa no repositório público.
+
+## Reconciliação entre heurística e validação humana
+
+A heurística é uma **sugestão técnica**, não uma decisão definitiva. A inspeção humana pode incluir uma OS sem assinatura completa MB24 (por exemplo, reposição com material não presente na extração de reservas), ou retirar uma OS que o algoritmo considerou provável troca.
+
+A revisão é persistida em um mapa indexado por **equipamento SAP + número da ordem**, preservando os campos: selecionada (sim/não), lado, data de evento utilizada e justificativa. As evidências originais permanecem imutáveis.
+
+O recálculo de indicadores segue:
+1. Contar **OS distintas marcadas** por equipamento; não duplicar custos quando a mesma OS contém dois lados.
+2. Construir eventos por **lado** para OS com data válida. Uma OS marcada para ambos contribui com um evento em cada série, mas com apenas um custo e uma OS.
+3. Calcular dias **entre eventos consecutivos do mesmo lado**, priorizando a mediana dos intervalos comparáveis. Sem esses pares, usar a data da primeira OS marcada menos o início em serviço ou aquisição do equipamento, distinguindo estimativa.
+4. Uma OS com lado não informado entra no total de ordens, mas não cria artificialmente duas esteiras ou intervalos por lado.
+5. O indicador continua **calendário estimado**, não vida útil operacional em horas. Datas manuais são referências da análise, sem alterar lançamentos SAP.
+
+Os controles de revisão foram incluídos tanto na aba 05 quanto no HTML independente. O JSON de decisões é portável entre o dashboard isolado e a aplicação principal; o JSON de sessão inclui todos os dados e decisões.
