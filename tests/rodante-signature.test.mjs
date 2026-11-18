@@ -150,3 +150,13 @@ test("posição eliminada sem quantidade registrada não comprova montagem",()=>
  assert.equal(classifyRodante(m.orders[0]).materialSignature.complete,false);
  assert.equal(classifyRodante(m.orders[0]).eventStrong,false);
 });
+
+test("escopo completo pode listar roletes sem ser tratado como troca isolada",()=>{
+ const os="OS-SYNTH-MIX";
+ const m=createModel({equipment:equip(),orders:[
+ row(os,"SUBSTITUIR MATERIAL RODANTE COMPLETO E ROLETES","2026-03-01",350000)
+ ],reservations:kit(os).concat([reservation(os,"ROLETES INFERIORES",12,9)])});
+ const a=classifyRodante(m.orders[0]);
+ assert.equal(a.operationClass,"troca de esteira / conjunto");
+ assert.equal(a.eventStrong,true);
+});
