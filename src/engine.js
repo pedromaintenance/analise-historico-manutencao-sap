@@ -347,77 +347,121 @@ const patterns={
 const activityPattern=/\b(TROC\w*|SUBST\w*|REPLAC\w*|RENOV\w*)\b/;
 const installationPattern=/\b(MONTAGEM|INSTAL\w*|REINSTAL\w*)\b/;
 const preventivePattern=/\b(INSPEC\w*|VERIFIC\w*|LUBRIF\w*|AVALI\w*|MEDI\w*|TENSION\w*|AJUST\w*|DIAGNOSTIC\w*)\b/;
+
+/**
+ * Firma material: procura o conjunto e não palavras isoladas.
+ * Exige componente central da esteira + famílias complementares,
+ * sem inferir aplicação física a partir da MB24.
+ */
+export function rodanteMaterialSignature(reservations=[]) {
+ const parts={chain:[],shoes:[],fasteners:[],idler:[],sprocket:[],rollers:[],service:[],other:[]};
+ const materialRows=(reservations||[]).filter(r=>!["X","SIM","TRUE","1"].includes(key(r.deletedFlag)));
+ for(const row of materialRows){
+  const name=key(row.description||row.materialText);
+  const qty=parseNumber(row.qty);
+  let category="other";
+  if(/\b(TRANSPORTE|SERVICO|FRETE|MAO\s+DE\s+OBRA)\b/.test(name))category="service";
+  else if(/\b(CONJUNTO\s+(?:DE\s+)?ELOS|GRUPO\s+(?:DE\s+)?ESTEIRA|CORRENTE\s+(?:DE\s+ELOS|EH[0-9]|DA\s+ESTEIRA)|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|LAGARTA\b|ESTEIRAS?\s+(?:COMPLET|[0-9]|CAT))/.test(name)&&
+     !/\b(PARAFUSO|PORCA|SAPATA|TENSOR|VALVULA|ROLE(TES?|RS?)|GUIA|MOTRIZ)\b/.test(name))category="chain";
+  else if(/\bSAPATAS?\b/.test(name))category="shoes";
+  else if(/\b(PARAFUSOS?|PORCAS?|ARRUELAS?|FIXADORES?)\b/.test(name))category="fasteners";
+  else if(/\b(RODA\s+GUIA|IDLER)\b/.test(name))category="idler";
+  else if(/\b(RODA\s+MOTRIZ|SPROCKET|SEGMENTO\s+(?:DA\s+)?RODA)\b/.test(name))category="sprocket";
+  else if(/\b(ROLETES?|ROLLERS?)\b/.test(name))category="rollers";
+  parts[category].push({material:row.material,description:row.description,qty,unit:row.unit});
+ }
+ const core=parts.chain.length>0;
+ const shoes=parts.shoes.length>0;
+ const heavyFasteners=parts.fasteners.some(x=>x.qty>=40);
+ const drive=parts.sprocket.length>0;
+ const idler=parts.idler.length>0;
+ const rollers=parts.rollers.length>0;
+ const peripheralFamilies=[shoes,heavyFasteners,drive,idler,rollers].filter(Boolean).length;
+ // Não basta a palavra 'esteira' no nome de um parafuso, ou custo elevado.
+ // Conjuntos típicos: corrente/elos + sapatas + fixações; ou corrente + 2 outros sistemas.
+ const complete=core&&((shoes&&(heavyFasteners||peripheralFamilies>=2))||
+   (drive&&idler)||(peripheralFamilies>=3));
+ const categories=Object.entries(parts).filter(([name,rows])=>name!=="other"&&name!=="service"&&rows.length).map(([name])=>name);
+ return {complete,core,shoes,heavyFasteners,drive,idler,rollers,
+   peripheralFamilies,materialRows:materialRows.length,
+   categories,parts,reason:complete
+    ?"Conjunto central da esteira + componentes complementares em reserva"
+    :core?"Conjunto central encontrado, composição complementar insuficiente"
+    :"Sem evidência de corrente/conjunto de elos completo na MB24"};
+}
 export function classifyRodante(order,{completionStatuses=["ENTE","ENCE"],cancellationStatuses=["NEXE","CANC"]}={}) {
-  // A descrição da OS prevalece. Texto da notificação é contexto, não prova da intervenção.
-  const main=key(order.description||order.noteDescription);
-  const reserveText=key((order.reserves||[]).map(x=>x.description).join(" "));
-  const timeline=chronology(order);
-  let component="";
-  for(const [name,re] of Object.entries(patterns))if(re.test(main)){component=name;break;}
-  const narrativeComponent=component;
-  if(!component)for(const [name,re] of Object.entries(patterns))
-    if(re.test(reserveText+" "+key(order.materialText))){component=name;break;}
-  const materialOnly=Boolean(component&&!narrativeComponent);
-  if(/CORRENTE\s+DE\s+AVANCO/.test(main)&&!/ESTEIR|RODANTE|ROLETE|RODA\s+GUIA|RODA\s+MOTRIZ/.test(main))component="";
-  const replacement=activityPattern.test(main);
-  const hasFasteners=/\b(PARAFUSOS?|PORCAS?|ARRUELAS?|PRESILHAS?)\b/.test(main);
-  const hasPins=/\b(PINOS?|BUCHAS?|ELOS?)\b/.test(main);
-  const hasSegments=/\b(SEGMENTOS?|RODA\s+GUIA|ROLE(TES?|RS?))\b/.test(main);
-  const hasTension=/\b(TENSOR|VALVULA\s+TENS\w*|TENSION\w*)\b/.test(main);
-  const partialOnly=hasFasteners||hasPins||hasSegments||hasTension||/\b(MODULOS?|FPS|SAPATAS?)\b/.test(main);
-  const installation=installationPattern.test(main)&&!replacement;
-  const adjustment=/\b(AJUST\w*|REPOSIC\w*|RECOLOC\w*|TENSION\w*|TENCION\w*|ESTIC\w*|ALINH\w*)\b|CAIU\s+(?:A\s+)?ESTEIRA|ESTEIRA\s+SAIU/.test(main)&&!replacement;
-  const inspection=preventivePattern.test(main)&&!replacement&&!installation&&!adjustment;
-  const logistics=/\b(TRANSPORTE|FRETE|ENVIO|COMPRA|AQUISICAO|FORNECIMENTO|MATERIAL\s+PARA|ORCAMENTO|COTACAO)\b/.test(main)&&!replacement;
-  const hasTrack=/\bESTEIRAS?\b|\bESTIRAS?\b|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+(?:DE|DA)\s+ESTEIRA/.test(main);
-  const hasPart=partialOnly||Object.entries(patterns).some(([name,re])=>name!=="esteira completa"&&name!=="material rodante geral"&&re.test(main));
-  let operationClass="menção / indeterminado";
-  if(logistics)operationClass="materiais / logística";
-  else if(materialOnly)operationClass="indício apenas por reserva";
-  else if(replacement&&hasTrack&&!hasPart)operationClass="troca de esteira / conjunto";
-  else if(replacement&&hasTrack&&hasPart)operationClass="troca parcial / componente";
-  else if(replacement)operationClass="troca parcial / componente";
-  else if(adjustment)operationClass="ajuste / reposicionamento";
-  else if(inspection)operationClass="inspeção / diagnóstico";
-  else if(installation)operationClass="montagem / instalação";
-  const reservationRows=(order.reserves||[]).filter(x=>
-    !["X","TRUE","SIM"].includes(key(x.deletedFlag)));
-  const fullMaterial=reservationRows.some(x=>
-    /ESTEIRA\s+COMPLETA|^ESTEIRA\s+(?:\d|CAT|D9|D6|GRUPO)|^LAGARTA\s+\w+|GRUPO\s+(?:DE\s+)?ESTEIRA|CONJ(?:UNTO)?\s+(?:DE\s+)?ELOS\s+CORRENTE|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY)|CORRENTE\s+COMPLETA/.test(key(x.description)));
-  const reservationHasParts=reservationRows.length>0&&!fullMaterial;
-  // Evidência de material reservado serve para triangulação, não prova aplicação.
-  const status=key(order.sys).split(" ");
-  const cancelled=cancellationStatuses.map(key).some(x=>status.includes(x));
-  const closed=completionStatuses.map(key).some(x=>status.includes(x));
-  const costReal=parseNumber(order.costReal);
-  const costPlanned=parseNumber(order.costPlanned);
-  const right=/\bL\s*D\b|LADO\s+(?:DIR|DIREITO)|\bDIREITA\b|\bDIR\b/.test(main);
-  const left=/\bL\s*E\b|LADO\s+(?:ESQ|ESQUERDO)|\bESQUERDA\b|\bESQ\b/.test(main);
-  const both=(right&&left)||/AMBOS\s+OS\s+LADOS|PAR\s+DE\s+ESTEIRAS|LADOS\s+DIR\s*\/\s*ESQ/.test(main);
-  const side=both?"ambos":right?"direito":left?"esquerdo":"não informado";
-  const possibleReplacement=(operationClass==="troca de esteira / conjunto"||operationClass==="troca mista / componentes adicionais"||operationClass==="troca parcial / componente");
-  const isCandidate=Boolean(component&&possibleReplacement&&!cancelled&&!materialOnly);
-  let evidence="menção sem troca identificada";
-  if(cancelled)evidence="cancelado / não executado";
-  else if(materialOnly)evidence="indício apenas por material reservado";
-  else if(inspection||adjustment)evidence="inspeção / ajuste";
-  else if(installation)evidence="montagem / instalação — verificar substituição";
-  else if(isCandidate&&closed)evidence="troca indicada por texto e status";
-  else if(isCandidate&&costReal>0)evidence="troca indicada por texto e custo registrado";
-  else if(isCandidate)evidence="troca planejada / sem confirmação";
-  else if(logistics)evidence="material / logística — não comprova instalação";
-  const eventStrong=Boolean(isCandidate&&closed&&costReal>0&&
-    operationClass==="troca de esteira / conjunto"&&
-    (!reservationHasParts));
-  const evidenceLevel=cancelled?"excluída":
-    eventStrong&&fullMaterial?"alta (triangulação)":
-    eventStrong?"média (sem MB24 da troca)":
-    isCandidate?"revisão necessária":"não elegível";
-  return {component,side,replacement,installation,inspection,adjustment,operationClass,
-    evidence,evidenceLevel,isCandidate,eventStrong,fullMaterial,reservationHasParts,
-    closed,cancelled,costReal,costPlanned,materialOnly,
-    ...timeline,dateReal:timeline.actual,dateProxy:timeline.reference,
-    contextOnly:!component&&/ESTEIR|RODANTE/.test(key(order.flLabel))};
+ const main=key(order.description||order.noteDescription);
+ const signature=rodanteMaterialSignature(order.reserves||[]);
+ const timeline=chronology(order);
+ const reserveText=key((order.reserves||[]).map(x=>x.description).join(" "));
+ let component="";
+ for(const [name,re] of Object.entries(patterns))if(re.test(main)){component=name;break;}
+ const narrativeComponent=component;
+ if(!component)for(const [name,re] of Object.entries(patterns))
+   if(re.test(reserveText+" "+key(order.materialText))){component=name;break;}
+ const materialOnly=Boolean(component&&!narrativeComponent);
+ const unrelatedFeed=/CORRENTE\s+DE\s+AVANCO/.test(main)&&!/ESTEIR|RODANTE|ROLETE|RODA\s+GUIA|RODA\s+MOTRIZ/.test(main);
+ if(unrelatedFeed)component="";
+ const namedPartial=/\b(ROLETES?|ROLAMENTOS?|RODA\s+GUIA|RODA\s+MOTRIZ|TENSOR|TENSION\w*|VALVULA\s+TENS\w*|PARAFUSOS?|PORCAS?|ARRUELAS?|SAPATAS?|PINOS?|BUCHAS?|ELOS\s+SOLTOS?|FPS|MODULOS?|PROTETOR(?:ES)?)\b/.test(main);
+ const explicitWhole=/(?:\bMATERIAL\s+RODANTE\s+COMPLETO\b|\bESTEIRAS?\s+COMPLETAS?\b)/
+   .test(main);
+ const trackText=/\b(ESTEIRAS?|ESTIRAS?|MATERIAL\s+RODANTE|TRACK\s+(?:CHAIN|GROUP|ASSEMBLY))\b/.test(main);
+ const assembly=/\b(MONTAGEM|MONTAR|INSTALACAO|INSTALAR|APLICACAO|SUBSTITUICAO|SUBSTITUIR|TROCA|TROCAR|RENOVACAO)\b/.test(main);
+ const replacement=activityPattern.test(main);
+ const installation=installationPattern.test(main)&&!replacement;
+ const adjustment=/\b(AJUST\w*|REPOSIC\w*|RECOLOC\w*|TENSION\w*|TENCION\w*|ESTIC\w*|ALINH\w*|LIXAR)\b|CAIU\s+(?:A\s+)?ESTEIRA|ESTEIRA\s+SAIU/.test(main)&&!replacement;
+ const inspection=preventivePattern.test(main)&&!replacement&&!installation&&!adjustment;
+ const logistics=/\b(ENVIO|COMPRA|AQUISICAO|FORNECIMENTO|MATERIAL\s+PARA|ORCAMENTO|COTACAO|TRANSPORTE\s+(?:DE|DAS)\s+ESTEIRAS)\b/.test(main)&&!replacement;
+ const status=key(order.sys).split(" ");
+ const cancelled=cancellationStatuses.map(key).some(x=>status.includes(x));
+ const closed=completionStatuses.map(key).some(x=>status.includes(x));
+ const costReal=parseNumber(order.costReal),costPlanned=parseNumber(order.costPlanned);
+ const right=/\bL\s*D\b|LADO\s+(?:DIR|DIREITO)|\bDIREITA\b|\bDIR\b/.test(main);
+ const left=/\bL\s*E\b|LADO\s+(?:ESQ|ESQUERDO)|\bESQUERDA\b|\bESQ\b/.test(main);
+ const both=(right&&left)||/\b(AMBOS\s+OS\s+LADOS|PAR\s+DE\s+ESTEIRAS)\b/.test(main);
+ const side=both?"ambos":right?"direito":left?"esquerdo":"não informado";
+ // O texto pode declarar o escopo completo mesmo que tenha sido aberto como BACKLOG.
+ // A BOM e a contabilização qualificam a execução separadamente.
+ const wholeScope=Boolean(component&&!namedPartial&&!logistics&&
+    (explicitWhole||(trackText&&assembly)||(signature.complete&&trackText)));
+ const operationClass=cancelled?"cancelado / não executado":
+   logistics?"materiais / logística":
+   wholeScope?"troca de esteira / conjunto":
+   namedPartial&&(replacement||installation)?"troca parcial / componente":
+   adjustment?"ajuste / reposicionamento":
+   inspection?"inspeção / diagnóstico":
+   trackText&&signature.core?"intervenção em conjunto — verificar":
+   installation?"montagem / instalação":
+   replacement?"troca parcial / componente":
+   materialOnly?"indício apenas por reserva":"menção / indeterminado";
+ const isCandidate=Boolean(component&&operationClass==="troca de esteira / conjunto"&&!cancelled);
+ // Custos reais + composição completa + escopo técnico: evidência forte,
+ // inclusive com status LIB/MOME (sem alegar encerramento administrativo).
+ const eventStrong=Boolean(isCandidate&&signature.complete&&costReal>0);
+ const evidenceLevel=cancelled?"excluída":
+   eventStrong?"alta (escopo + conjunto MB24 + custo real)":
+   isCandidate&&signature.complete?"verificar custo / status (kit identificado)":
+   isCandidate&&costReal>0?"revisão necessária (custo sem kit MB24)":
+   isCandidate?"escopo declarado — execução não demonstrada":
+   "não elegível";
+ const evidence=eventStrong?"provável substituição integral: texto, materiais e custo compatíveis":
+   isCandidate?"escopo integral indicado; confirmar execução":operationClass;
+ // Preservar a data-base, mas registrar o encerramento da avaria como
+ // data mais plausível do evento quando é posterior ao planejamento.
+ const eventDate=timeline.faultEnd&&
+   (!timeline.dateBase||timeline.faultEnd>=timeline.dateBase)
+   ?timeline.faultEnd:timeline.reference;
+ const eventDateSource=eventDate===timeline.faultEnd&&timeline.faultEnd
+   ?"Fim da avaria":"Data-base / Entrada conforme disponibilidade";
+ return {component:wholeScope?"esteira completa":component,side,
+   replacement,installation,inspection,adjustment,operationClass,
+   evidence,evidenceLevel,isCandidate,eventStrong,fullMaterial:signature.core,
+   reservationHasParts:signature.materialRows>0&&!signature.complete,
+   closed,cancelled,costReal,costPlanned,materialOnly,
+   materialSignature:signature,
+   explicitWhole,wholeScope,namedPartial,eventDate,eventDateSource,
+   ...timeline,dateReal:timeline.actual,dateProxy:timeline.reference,
+   contextOnly:!component&&/ESTEIR|RODANTE/.test(key(order.flLabel))};
 }
 const diffDays=(a,b)=>(asDate(b).getTime()-asDate(a).getTime())/86400000;
 const mean=v=>v.length?v.reduce((a,b)=>a+b,0)/v.length:null;
