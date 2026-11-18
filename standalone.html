@@ -54,6 +54,10 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
 .dash-machine-choice small{display:block;color:var(--sub)}
 .dash-machine-choice input{flex:none;margin-top:3px}
 @media print{#dashboard .panel:not(:last-child),header,footer{display:none!important}#dashboard .panel:last-child{border:0;box-shadow:none;padding:0}}
+.session-shortcut{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;padding:9px 0 13px}
+.session-shortcut span{color:#d5e6ea;font-size:12px}
+.session-shortcut button{padding:7px 12px;border:1px solid #c8d8dc;border-radius:8px;background:#f4f8fa;color:#164659;font-weight:750;cursor:pointer}
+@media(max-width:620px){.session-shortcut{justify-content:flex-start}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
 </head>
@@ -70,6 +74,12 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
     <button data-tab="ciclo">04 · Ciclo de vida</button>
     <button data-tab="dashboard">05 · Dashboard</button>
   </nav>
+  <div class="session-shortcut" role="group" aria-label="Sessão de todas as abas">
+   <span id="globalSessionInfo">Sessão em memória · Todas as abas</span>
+   <button id="globalExportSession" type="button">Exportar sessão completa (.json.gz)</button>
+   <button id="globalImportSession" type="button">Restaurar sessão completa</button>
+   <input id="globalSessionFile" type="file" accept=".json,.json.gz,.gz" style="display:none">
+  </div>
 </div></header>
 <main class="container">
 <section id="cadastros" class="view active">
@@ -252,6 +262,12 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
   <div class="toolbar">
     <label><input type="checkbox" id="dashAllowWeak"> Incluir candidatas de evidência fraca</label>
     <label><input type="checkbox" id="dashShowOther" checked> Mostrar outras intervenções na tabela</label>
+  </div>
+  <div class="toolbar">
+    <button id="dashExportDecisions" type="button">Exportar decisões das OS (.json)</button>
+    <button id="dashImportDecisions" type="button">Importar decisões</button>
+    <input id="dashReviewFile" type="file" accept=".json" style="display:none">
+    <span class="muted">As decisões entram no backup da sessão e nos KPIs revisados.</span>
   </div>
   <div class="summary" id="dashStats"></div>
  </div>
@@ -1295,6 +1311,98 @@ function buildDashboardData(lifecycle,{excluded=[],includeAll=true,createdAt=new
   machines:includeAll?machines:machines.filter(m=>m.selected)};
 }
 
+
+/** Identificador estável de decisão: mesmo código de OS pode existir em ativos distintos. */
+function reviewOrderKey(assetId,orderId) {
+ return String(assetId)+"|"+String(orderId);
+}
+function normalizeReviewDecisions(raw) {
+ if(!raw||typeof raw!=="object"||Array.isArray(raw))return {};
+ const out={},validSides=new Set(["não informado","direito","esquerdo","ambos"]);
+ let count=0;
+ for(const [id,v] of Object.entries(raw)){
+  if(++count>100000)throw new Error("Arquivo de revisões excede limite de decisões.");
+  if(typeof id!=="string"||!id.includes("|")||id.length>250||!v||typeof v!=="object"||Array.isArray(v))continue;
+  const d={};
+  if(typeof v.selected==="boolean")d.selected=v.selected;
+  if(typeof v.side==="string"&&validSides.has(v.side))d.side=v.side;
+  if(typeof v.date==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(v.date))d.date=v.date;
+  if(typeof v.note==="string")d.note=v.note.slice(0,1000);
+  if(Object.keys(d).length)out[id]=d;
+ }
+ return out;
+}
+function exportReviewFile(reviews) {
+ return {format:"sap-rodante-reviews",version:1,
+  exportedAt:new Date().toISOString(),reviews:normalizeReviewDecisions(reviews)};
+}
+function importReviewFile(file) {
+ if(!file||file.format!=="sap-rodante-reviews"||file.version!==1)
+  throw new Error("Arquivo de decisões incompatível.");
+ return normalizeReviewDecisions(file.reviews);
+}
+function isoToDay(value) {
+ const v=toText(value),m=v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+ if(!m)return null;
+ const ts=Date.UTC(Number(m[1]),Number(m[2])-1,Number(m[3]));
+ const d=new Date(ts);
+ return d.toISOString().slice(0,10)===v?ts/86400000:null;
+}
+/** Recalcula indicadores SEM depender da classificação rígida.
+ * A revisão do analista substitui só a aceitação, data e lado informados,
+ * conservando classificações e evidências originais para comparação.
+ */
+function recalculateReviewedDashboard(data,reviews={}) {
+ const decisions=normalizeReviewDecisions(reviews);
+ const result={...data,machines:(data.machines||[]).map(m=>{
+  const orders=(m.orders||[]).map(o=>{
+    const id=reviewOrderKey(m.id,o.order),manual=decisions[id]||{};
+    const selected=typeof manual.selected==="boolean"?manual.selected:Boolean(o.isChange);
+    const side=manual.side||o.side||"não informado";
+    const date=manual.date||o.dateReference||o.faultEnd||o.dateBase||o.entry||"";
+    return {...o,reviewKey:id,selected,side,date,
+      reviewNote:manual.note||"",reviewStatus:typeof manual.selected==="boolean"?"Decisão manual":"Sugestão automática"};
+  });
+  const chosen=orders.filter(x=>x.selected);
+  const timeline={direito:[],esquerdo:[]};
+  const seen=new Set();
+  for(const o of chosen) {
+    if(seen.has(o.order))continue;
+    seen.add(o.order);
+    const day=isoToDay(o.date);
+    if(day===null)continue;
+    const sides=o.side==="ambos"?["direito","esquerdo"]:[o.side];
+    for(const side of sides)if(timeline[side])timeline[side].push({day,order:o.order});
+  }
+  let intervalCount=0;
+  const periods=[];
+  for(const side of ["direito","esquerdo"]){
+    const sorted=timeline[side].sort((a,b)=>a.day-b.day||a.order.localeCompare(b.order));
+    for(let i=1;i<sorted.length;i++){
+      const span=sorted[i].day-sorted[i-1].day;
+      if(span>0){periods.push(span);intervalCount++;}
+    }
+  }
+  const startDay=isoToDay(m.operationalStart);
+  const allDated=chosen.map(x=>isoToDay(x.date)).filter(x=>x!==null);
+  const firstDay=allDated.length?Math.min(...allDated):null;
+  const firstAge=startDay!==null&&firstDay!==null&&firstDay>=startDay?firstDay-startDay:null;
+  const computedDays=periods.length?median(periods):firstAge;
+  const kind=periods.length?"Mediana entre trocas revisadas (por lado)":
+    firstAge!==null?"Tempo desde "+(m.operationalSource?.startsWith("Aquisição")?"aquisição":"início em serviço")+
+      " até 1ª OS de troca revisada":"Sem ciclo estimável";
+  const manualCount=orders.filter(x=>x.reviewStatus==="Decisão manual").length;
+  const totalCost=chosen.reduce((sum,x)=>sum+(Number(x.costReal)||0),0);
+  return {...m,orders,days:computedDays,daysKind:kind,
+   changeOrders:chosen.length,intervalCount,firstCount:firstAge!==null?1:0,
+   trackedSides:timeline.direito.length+timeline.esquerdo.length,
+   reviewedOrders:manualCount,reviewedCostTotal:totalCost,
+   firstDate:firstDay===null?"":new Date(firstDay*86400000).toISOString().slice(0,10),
+   noChangeMessage:chosen.length?"":"Nenhuma OS marcada como troca nesta revisão."};
+ })};
+ return result;
+}
+
 const DASHBOARD_STYLE=[
 ".report-app{font-family:Segoe UI,Arial,sans-serif;color:#173042;font-size:14px;line-height:1.52}",
 ".report-app *{box-sizing:border-box}.report-app .report-grid{display:grid;gap:16px}",
@@ -1319,6 +1427,11 @@ const DASHBOARD_STYLE=[
 ".report-app .report-pill{font-size:11px;display:inline-block;padding:3px 9px;border-radius:99px;background:#eaf5ed;color:#166949;font-weight:800}",
 ".report-app .report-pill.review{background:#fff1dd;color:#8d6322}",
 ".report-app .report-evidence{display:block;white-space:normal;color:#56717e;font-size:11px;margin-top:5px;min-width:180px;max-width:310px}",
+".report-app .report-edit{min-width:190px;display:grid;gap:5px;font-size:11px;color:#526875}",
+".report-app .report-edit label{display:flex;align-items:center;gap:6px;white-space:normal}",
+".report-app .report-edit select,.report-app .report-edit input[type=date],.report-app .report-edit input[type=text]{border:1px solid #cadce4;border-radius:5px;padding:5px;font:inherit;max-width:215px}",
+".report-app .report-edit .report-change-check{width:16px;height:16px;accent-color:#005471}",
+".report-app .report-tr-change td{background:#f1faf6}",
 ".report-app details summary{cursor:pointer;color:#005471;font-weight:750;white-space:nowrap;list-style:none}",
 ".report-app details summary::before{content:'▸ ';color:#c3942c}.report-app details[open] summary::before{content:'▾ '}",
 ".report-app .report-materials{margin-top:10px;max-width:540px;border:1px solid #d8e5e9;border-radius:8px;overflow:auto;max-height:240px}",
@@ -1332,7 +1445,7 @@ const DASHBOARD_STYLE=[
 "@media print{.report-app .report-machine{break-inside:avoid;box-shadow:none;margin-bottom:10px}.report-app details:not([open]) .report-materials{display:none}}"
 ].join("");
 
-function renderDashboardCards(data,{includeOther=false}={}){
+function renderDashboardCards(data,{includeOther=false,editable=true}={}){
  if(!data||!Array.isArray(data.machines))throw new Error("Dados do dashboard inválidos.");
  const visible=data.machines.filter(m=>m.selected!==false);
  const head='<div class="report-app'+(includeOther?' report-show-other':'')+'"><div class="report-grid">';
@@ -1340,30 +1453,36 @@ function renderDashboardCards(data,{includeOther=false}={}){
   const start=m.operationalStart?dateBR(m.operationalStart):"Não disponível";
   const source=m.operationalStart?m.operationalSource:"Sem data de entrada em serviço ou aquisição";
   const body=m.orders.map(o=>{
+   const checked=o.selected??o.isChange;
    const rows=o.materials||[];
    const materialContent=rows.length?
     '<table><thead><tr><th>Reserva</th><th>Material</th><th>Descrição</th><th>Qtd.</th><th>UM</th></tr></thead><tbody>'+
     rows.map(r=>'<tr><td>'+escapeHtml(r.reservation)+'</td><td>'+escapeHtml(r.material)+'</td><td>'+escapeHtml(r.description)+'</td><td>'+escapeHtml(r.qty)+'</td><td>'+escapeHtml(r.unit)+'</td></tr>').join('')+
     '</tbody></table>':
     '<p>Não há itens de reserva nesta exportação. Isso não demonstra ausência de material aplicado.</p>';
-   return '<tr class="'+(o.isChange?'report-change':'report-other')+'"><td><strong>'+escapeHtml(o.order)+'</strong></td>'+
+   const choice=editable?'<div class="report-edit"><label><input class="report-change-check" data-review-select type="checkbox"'+(checked?' checked':'')+'> Conta como troca</label>'+
+    '<label>Lado <select data-review-side>'+["não informado","direito","esquerdo","ambos"].map(v=>'<option value="'+v+'"'+((o.side||"não informado")===v?' selected':'')+'>'+escapeHtml(v)+'</option>').join("")+'</select></label>'+
+    '<label>Data do evento <input data-review-date type="date" value="'+escapeHtml(o.date||o.dateReference||"")+'"></label>'+
+    '<label>Justificativa <input data-review-note type="text" maxlength="1000" value="'+escapeHtml(o.reviewNote||"")+'" placeholder="Evidência observada"></label></div>':"";
+   return '<tr data-order="'+escapeHtml(o.order)+'" class="'+(checked?'report-change report-tr-change':'report-other')+'"><td><strong>'+escapeHtml(o.order)+'</strong></td>'+
     '<td class="description">'+escapeHtml(o.description)+'</td>'+
     '<td>'+dateBR(o.dateBase)+'</td><td>'+dateBR(o.faultEnd)+'</td><td>'+dateBR(o.entry)+'</td>'+
     '<td>'+money(o.costReal)+'</td>'+
-    '<td><span class="report-pill'+(o.isChange?'':' review')+'">'+(o.isChange?'Provável troca integral':'Revisar / outro serviço')+'</span>'+
+    '<td><span class="report-pill'+(checked?'':' review')+'">'+(checked?'Conta como troca':'Não conta como troca')+'</span>'+
      '<small class="report-evidence">'+escapeHtml(o.materialEvidence||o.evidence)+
      (o.supportingOrders?' · OS associada: '+escapeHtml(o.supportingOrders):'')+
-     (o.isChange&&o.eventDateSource?' · Data: '+escapeHtml(o.eventDateSource):'')+'</small></td>'+
-    '<td><details><summary>Materiais ('+o.materialCount+')</summary><div class="report-materials">'+materialContent+'</div></details></td></tr>';
+     (o.isChange&&o.eventDateSource?' · Data: '+escapeHtml(o.eventDateSource):'')+
+     ' · '+escapeHtml(o.reviewStatus||'Sugestão automática')+'</small></td>'+
+    '<td>'+choice+'</td><td><details><summary>Materiais ('+o.materialCount+')</summary><div class="report-materials">'+materialContent+'</div></details></td></tr>';
   }).join('');
-  const table='<div class="report-table-scroller"><table><thead><tr><th>Ordem SAP</th><th>Descrição da OS</th><th>Data-base</th><th>Fim da avaria</th><th>Entrada</th><th>Custo total da OS*</th><th>Classificação</th><th>Detalhes</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+  const table='<div class="report-table-scroller"><table><thead><tr><th>Ordem SAP</th><th>Descrição da OS</th><th>Data-base</th><th>Fim da avaria</th><th>Entrada</th><th>Custo total da OS*</th><th>Classificação</th><th>Revisão do analista</th><th>Detalhes</th></tr></thead><tbody>'+body+'</tbody></table></div>';
   return '<section class="report-machine" data-asset="'+escapeHtml(m.id)+'" data-search="'+escapeHtml([m.tag,m.family,m.model,m.asset,m.equipment].join(' ').toLowerCase())+'">'+
    '<header class="report-machine-header"><div><div class="report-type">'+escapeHtml(m.family)+' · '+escapeHtml(m.model)+'</div>'+
    '<div class="report-tag">'+escapeHtml(m.tag||m.equipment||m.asset)+'</div>'+
    '<div class="report-name">'+escapeHtml(m.asset)+'</div></div>'+
    '<div class="report-sub">Início de operação aproximado: <strong>'+escapeHtml(start)+'</strong><div>'+escapeHtml(source)+'</div></div></header>'+
    '<div class="report-kpis"><div class="report-kpi"><div class="value">'+(m.days==null?'—':days(m.days)+' dias')+'</div><div class="label">'+escapeHtml(m.daysKind)+'</div></div>'+
-   '<div class="report-kpi"><div class="value">'+m.changeOrders+'</div><div class="label">Ordens de substituição candidatas ('+m.trackedSides+' lado(s) observado(s))</div></div></div>'+
+   '<div class="report-kpi"><div class="value">'+m.changeOrders+'</div><div class="label">Ordens marcadas como troca ('+m.trackedSides+' eventos por lado identificado)</div></div></div>'+
    '<div class="report-note">Equipamento SAP: '+escapeHtml(m.equipment||'não localizado')+' · '+m.intervalCount+' intervalo(s) entre trocas consecutivas'+
    (m.firstCount?' · '+m.firstCount+' primeira(s) troca(s) estimada(s)':'')+'</div>'+
    (m.noChangeMessage?'<div class="report-nochange">'+escapeHtml(m.noChangeMessage)+'</div>':'')+
@@ -1374,42 +1493,139 @@ function renderDashboardCards(data,{includeOther=false}={}){
  return head+html+'</div></div>';
 }
 
-function generateStandaloneDashboard(data,{includeOther=false}={}){
- const safeData=JSON.stringify(data).replace(/</g,"\\u003c").replace(/>/g,"\\u003e").replace(/&/g,"\\u0026");
- const cards=renderDashboardCards(data,{includeOther});
- const title=escapeHtml(data.title||"Ciclo de Vida — Material Rodante");
- const css=DASHBOARD_STYLE;
- // Apenas o relatório filtrado é incorporado. Nenhum envio de dados, API, CDN ou telemetria.
- return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
-  '<meta name="referrer" content="no-referrer"><title>'+title+'</title><style>'+
-  'body{margin:0;background:#eff4f6;font:14px Segoe UI,Arial,sans-serif;color:#173042}.shell{max-width:1550px;margin:auto;padding:22px}'+
-  '.mast{background:#073d51;color:#fff;padding:26px 24px;border-bottom:5px solid #c3942c}.mast-inner{max-width:1550px;margin:auto}.mast h1{font-size:clamp(23px,3vw,32px);margin:4px 0 10px}.mast p{color:#c7dce3;margin:0}'+
-  '.controls{background:#fff;border:1px solid #d6e0e5;padding:14px;border-radius:14px;margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}'+
-  '.controls input[type=text]{padding:11px;border:1px solid #cbd9de;border-radius:8px;min-width:180px;flex:1}'+
-  '.controls button{background:#005471;border:0;border-radius:8px;color:white;padding:11px 15px;cursor:pointer;font-weight:750}'+
-  '.disclaimer{color:#627784;font-size:12px;margin:10px 0 20px}'+css+
-  '@media print{.mast{background:white!important;color:black!important}.mast p{color:black}.controls{display:none}.shell{padding:0}.report-app .report-machine{break-inside:avoid}body{background:white}}'+
-  '</style></head><body><header class="mast"><div class="mast-inner"><small>ENGENHARIA DE MANUTENÇÃO · ANÁLISE TÉCNICA</small><h1>'+title+'</h1>'+
-  '<p>Gerado em '+dateBR(toText(data.createdAt).slice(0,10))+' · '+data.machines.filter(x=>x.selected!==false).length+' equipamentos selecionados</p></div></header>'+
-  '<main class="shell"><div class="controls"><input type="text" id="find" placeholder="Buscar equipamento, TAG ou modelo">'+
-  '<label><input type="checkbox" id="other"'+(includeOther?' checked':'')+'> Mostrar inspeções, ajustes e demais OS</label>'+
-  '<button id="print" type="button">Imprimir / salvar PDF</button></div>'+
-  '<p class="disclaimer">'+escapeHtml(data.disclaimer)+'</p>'+
-  '<div id="report">'+cards+'</div></main>'+
-  '<script id="report-data" type="application/json">'+safeData+'</script>'+
-  '<script>(function(){var container=document.getElementById("report");var input=document.getElementById("find");'+
-  'function apply(){var q=input.value.toLowerCase().trim();container.querySelectorAll(".report-machine").forEach(function(el){el.style.display=!q||el.getAttribute("data-search").includes(q)?"":"none";});'+
-  'container.querySelector(".report-app").classList.toggle("report-show-other",document.getElementById("other").checked);}'+
-  'input.addEventListener("input",apply);document.getElementById("other").addEventListener("change",apply);'+
-  'document.getElementById("print").addEventListener("click",function(){window.print();});apply();})();</script>'+
-  '</body></html>';
+
+/* Executada exclusivamente no HTML privado exportado; não persiste dados no navegador. */
+function offlineReviewRuntime(){
+ "use strict";
+ const initial=JSON.parse(document.getElementById("report-data").textContent);
+ let decisions=importReviewFile(JSON.parse(document.getElementById("review-data").textContent));
+ const report=document.getElementById("report");
+ const search=document.getElementById("find");
+ const other=document.getElementById("other");
+ const counter=document.getElementById("decision-count");
+ function download(name,content,type){
+  const blob=new Blob([content],{type:type||"application/octet-stream"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2500);
+ }
+ function filter(){
+  const q=search.value.toLowerCase().trim();
+  report.querySelectorAll(".report-machine").forEach(el=>{
+   el.style.display=!q||el.dataset.search.includes(q)?"":"none";
+  });
+ }
+ function redraw(){
+  const data=recalculateReviewedDashboard(initial,decisions);
+  report.innerHTML=renderDashboardCards(data,{includeOther:other.checked,editable:true});
+  filter();
+  const edits=Object.values(decisions).filter(x=>typeof x.selected==="boolean").length;
+  const selected=data.machines.filter(x=>x.selected!==false).reduce((n,m)=>n+m.changeOrders,0);
+  counter.textContent=edits+" decisões manuais · "+selected+" OS marcadas como troca";
+ }
+ report.addEventListener("change",event=>{
+  const element=event.target;
+  const field=element.matches("[data-review-select]")?"selected":
+    element.matches("[data-review-side]")?"side":
+    element.matches("[data-review-date]")?"date":
+    element.matches("[data-review-note]")?"note":"";
+  if(!field)return;
+  const card=element.closest(".report-machine");
+  const row=element.closest("tr[data-order]");
+  if(!card||!row)return;
+  const id=reviewOrderKey(card.dataset.asset,row.dataset.order);
+  const current={...(decisions[id]||{})};
+  current[field]=field==="selected"?element.checked:element.value;
+  decisions[id]=current;
+  redraw();
+ });
+ search.addEventListener("input",filter);
+ other.addEventListener("change",redraw);
+ document.getElementById("print").addEventListener("click",()=>window.print());
+ document.getElementById("save-decisions").addEventListener("click",()=>{
+  download("revisao_ordens_rodante.json",JSON.stringify(exportReviewFile(decisions),null,2),"application/json");
+ });
+ document.getElementById("load-decisions").addEventListener("click",()=>{
+  document.getElementById("review-file").click();
+ });
+ document.getElementById("review-file").addEventListener("change",async event=>{
+  const file=event.target.files[0];if(!file)return;
+  try{decisions={...decisions,...importReviewFile(JSON.parse(await file.text()))};redraw();}
+  catch(e){alert("Arquivo de revisão inválido: "+e.message);}
+  event.target.value="";
+ });
+ document.getElementById("save-reviewed").addEventListener("click",()=>{
+  const html=generateStandaloneDashboard(initial,{includeOther:other.checked,reviews:decisions});
+  download("dashboard_rodante_revisado.html",html,"text/html;charset=utf-8");
+ });
+ redraw();
 }
 
-return {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard};
-})();
-const {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard}=DashboardModule;
+/* Gera documento privado inteiramente funcional sem bibliotecas externas. */
+function generateStandaloneDashboard(data,{includeOther=true,reviews={}}={}){
+ const choices=normalizeReviewDecisions(reviews);
+ const reviewed=recalculateReviewedDashboard(data,choices);
+ const safeJSON=value=>JSON.stringify(value).replace(/</g,"\\u003c")
+   .replace(/>/g,"\\u003e").replace(/&/g,"\\u0026")
+   .replace(/\u2028/g,"\\u2028").replace(/\u2029/g,"\\u2029");
+ const title=escapeHtml(data.title||"Ciclo de Vida — Material Rodante");
+ const helperSource=[
+  "const toText="+toText.toString()+";",
+  "const escapeHtml="+escapeHtml.toString()+";",
+  "const dateBR="+dateBR.toString()+";",
+  "const money="+money.toString()+";",
+  "const days="+days.toString()+";",
+  "const median="+median.toString()+";",
+  "const DASHBOARD_STYLE="+JSON.stringify(DASHBOARD_STYLE)+";",
+  reviewOrderKey.toString(),normalizeReviewDecisions.toString(),
+  exportReviewFile.toString(),importReviewFile.toString(),isoToDay.toString(),
+  recalculateReviewedDashboard.toString(),renderDashboardCards.toString(),
+  generateStandaloneDashboard.toString(),offlineReviewRuntime.toString(),
+  "offlineReviewRuntime();"
+ ].join("\n");
+ const safeHelpers=helperSource.replace(/<\/script/gi,"<\\/script");
+ const css="body{margin:0;background:#eff4f6;font:14px Segoe UI,Arial,sans-serif;color:#173042}"+
+ ".shell{max-width:1550px;margin:auto;padding:22px}"+
+ ".mast{background:#073d51;color:#fff;padding:26px 24px;border-bottom:5px solid #c3942c}"+
+ ".mast-inner{max-width:1550px;margin:auto}"+
+ ".mast h1{font-size:clamp(23px,3vw,32px);margin:4px 0 10px}"+
+ ".mast p{color:#c7dce3;margin:0}"+
+ ".controls{background:#fff;border:1px solid #d6e0e5;padding:14px;border-radius:14px;margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}"+
+ ".controls input[type=text]{padding:11px;border:1px solid #cbd9de;border-radius:8px;min-width:180px;flex:1}"+
+ ".controls button{background:#005471;border:0;border-radius:8px;color:#fff;padding:10px 14px;cursor:pointer;font-weight:750}"+
+ ".controls button.alt{background:#e4edf0;color:#214b5c}"+
+ ".disclaimer{color:#627784;font-size:12px;margin:10px 0 20px}"+
+ DASHBOARD_STYLE+
+ "@media print{.mast{background:white!important;color:black!important}.mast p{color:black}.controls{display:none!important}.shell{padding:0}.report-app .report-edit{display:none!important}.report-app .report-machine{break-inside:avoid}body{background:white}}";
+ return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'+
+ '<meta name="viewport" content="width=device-width,initial-scale=1">'+
+ '<meta name="referrer" content="no-referrer"><title>'+title+'</title><style>'+css+'</style></head><body>'+
+ '<header class="mast"><div class="mast-inner"><small>ENGENHARIA DE MANUTENÇÃO · REVISÃO TÉCNICA</small>'+
+ '<h1>'+title+'</h1><p>Relatório revisável offline · '+reviewed.machines.filter(m=>m.selected!==false).length+
+ ' equipamentos selecionados</p></div></header>'+
+ '<main class="shell"><div class="controls">'+
+ '<input type="text" id="find" placeholder="Buscar equipamento, TAG ou modelo">'+
+ '<label><input type="checkbox" id="other"'+(includeOther?' checked':'')+'> Mostrar todas as OS</label>'+
+ '<button id="save-decisions">Exportar decisões JSON</button>'+
+ '<button id="load-decisions" class="alt">Importar decisões</button>'+
+ '<input id="review-file" type="file" accept=".json" style="display:none">'+
+ '<button id="save-reviewed">Exportar HTML revisado</button>'+
+ '<button id="print" class="alt">Imprimir / PDF</button>'+
+ '<small id="decision-count" aria-live="polite"></small></div>'+
+ '<p class="disclaimer">'+escapeHtml(data.disclaimer)+
+ ' A revisão altera os KPIs locais e não modifica registros SAP. Salve HTML ou JSON antes de fechar.</p>'+
+ '<div id="report">'+renderDashboardCards(reviewed,{includeOther,editable:true})+'</div></main>'+
+ '<script id="report-data" type="application/json">'+safeJSON(data)+'</script>'+
+ '<script id="review-data" type="application/json">'+safeJSON(exportReviewFile(choices))+'</script>'+
+ '<script>'+safeHelpers+'</script></body></html>';
+}
 
-const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null,lifecycle:null,dashboardExcluded:new Set(),dashboardCore:null,dashboardCacheKey:"",dataVersion:0};
+return {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard,recalculateReviewedDashboard,reviewOrderKey,exportReviewFile,importReviewFile,normalizeReviewDecisions};
+})();
+const {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard,recalculateReviewedDashboard,reviewOrderKey,exportReviewFile,importReviewFile,normalizeReviewDecisions}=DashboardModule;
+
+const state={bases:Object.fromEntries(ROLES.map(r=>[r,[]])),loaded:[],model:null,report:null,lifecycle:null,dashboardExcluded:new Set(),dashboardCore:null,dashboardCacheKey:"",dataVersion:0,dashboardReviews:{}};
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function log(v){$("log").textContent=String(new Date().toLocaleTimeString("pt-BR"))+"  "+v+"\n"+$("log").textContent.slice(0,5500);}
@@ -1427,6 +1643,7 @@ function metrics(id,items) {
 function rebuild(){
  state.model=createModel(state.bases);
  state.dataVersion++;
+ if($("globalSessionInfo"))$("globalSessionInfo").textContent=ROLES.reduce((n,r)=>n+state.bases[r].length,0).toLocaleString("pt-BR")+" linhas carregadas · Todas as abas";
  state.dashboardCore=null;
  state.dashboardCacheKey="";
  renderAll();
@@ -1689,7 +1906,7 @@ function renderDashboardSelections(){
 }
 function renderDashboard(){
  const base=getDashboardBase();
- const payload=buildDashboardData(base,{excluded:[...state.dashboardExcluded]});
+ const payload=recalculateReviewedDashboard(buildDashboardData(base,{excluded:[...state.dashboardExcluded]}),state.dashboardReviews);
  state.dashboardPayload=payload;
  const families=[...new Set(payload.machines.map(m=>m.family))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
  const previous=$("dashFamily").value;
@@ -1713,7 +1930,7 @@ function renderDashboard(){
  ]);
  $("dashPreviewCount").textContent=num(selected.length)+" máquina(s) no relatório";
  $("dashPreview").innerHTML='<style>'+DASHBOARD_STYLE+'</style>'+
-  renderDashboardCards(payload,{includeOther:$("dashShowOther").checked});
+  renderDashboardCards(payload,{includeOther:$("dashShowOther").checked,editable:true});
  if(!selected.length)$("dashPreview").innerHTML='<p class="notice">Selecione pelo menos um equipamento para gerar o dashboard.</p>';
 }
 function setDashboardVisible(checked){
@@ -1726,7 +1943,7 @@ function exportDashboardHTML(){
  const payload=state.dashboardPayload||buildDashboardData(getDashboardBase());
  const selected={...payload,machines:payload.machines.filter(m=>m.selected!==false)};
  if(!selected.machines.length)return log("Selecione pelo menos um equipamento antes de exportar.");
- const html=generateStandaloneDashboard(selected,{includeOther:$("dashShowOther").checked});
+ const html=generateStandaloneDashboard(selected,{includeOther:$("dashShowOther").checked,reviews:state.dashboardReviews});
  localDownload("dashboard_rodante_"+new Date().toISOString().slice(0,10)+".html",html,"text/html;charset=utf-8");
  log("Dashboard privado exportado com "+selected.machines.length+" equipamentos. Guardar em ambiente autorizado.");
 }
@@ -1738,7 +1955,7 @@ function localDownload(name,content,mime){
  setTimeout(()=>URL.revokeObjectURL(url),5000);
 }
 function sessionSettings(){
- return {dashboardExcluded:[...state.dashboardExcluded],dashboardShowOther:$("dashShowOther").checked,dashboardAllowWeak:$("dashAllowWeak").checked,
+ return {dashboardReviews:normalizeReviewDecisions(state.dashboardReviews),dashboardExcluded:[...state.dashboardExcluded],dashboardShowOther:$("dashShowOther").checked,dashboardAllowWeak:$("dashAllowWeak").checked,
   lifeAsOf:$("lifeAsOf").value,lifeAllowWeak:$("lifeAllowWeak").checked,
    lifeAssetFilter:$("lifeAssetFilter").value,
    allowWeak:$("allowWeak").checked,allowProxy:$("allowProxy").checked,
@@ -1746,6 +1963,7 @@ function sessionSettings(){
    closingStatuses:$("closingStatuses").value,cancelStatuses:$("cancelStatuses").value};
 }
 function restoreSettings(s){
+ state.dashboardReviews=normalizeReviewDecisions(s.dashboardReviews);
  state.dashboardExcluded=new Set(Array.isArray(s.dashboardExcluded)?s.dashboardExcluded.map(String):[]);
  if(s.dashboardShowOther!=null)$("dashShowOther").checked=Boolean(s.dashboardShowOther);
  if(s.dashboardAllowWeak!=null)$("dashAllowWeak").checked=Boolean(s.dashboardAllowWeak);
@@ -1774,8 +1992,8 @@ async function saveCompressedSessionJSON(){
  localDownload("sap_sessao_"+new Date().toISOString().slice(0,10)+".json.gz",compressed,"application/gzip");
  log("Backup privado compactado criado: "+num(rows)+" linhas. Não publicar online.");
 }
-async function importSessionJSON(){
- const file=$("fileSession").files[0];
+async function importSessionJSON(inputId="fileSession"){
+ const file=$(inputId).files[0];
  if(!file)return log("Selecione o JSON salvo anteriormente.");
  try{
    const source=/\.gz$/i.test(file.name)
@@ -1786,7 +2004,7 @@ async function importSessionJSON(){
    restoreSettings(parsed.settings);rebuild();
    log("Sessão completa restaurada de "+file.name+". Nenhum upload ao servidor.");
  }catch(e){log("Erro ao restaurar JSON: "+(e.message||e));}
- $("fileSession").value="";
+ $(inputId).value="";
 }
 function makeEnrichedPackage(){
  if(!globalThis.XLSX)return log("Para salvar pacote Excel, a biblioteca XLSX precisa estar carregada. Use o JSON de sessão offline.");
@@ -1877,6 +2095,41 @@ $("exportRodante").onclick=()=>{
   }))}
  ]);
 };
+$("globalExportSession").onclick=()=>saveCompressedSessionJSON();
+$("globalImportSession").onclick=()=>$("globalSessionFile").click();
+$("globalSessionFile").onchange=()=>importSessionJSON("globalSessionFile");
+$("dashExportDecisions").onclick=()=>{
+ const file=exportReviewFile(state.dashboardReviews);
+ localDownload("revisao_ordens_rodante.json",JSON.stringify(file,null,2),"application/json");
+ log("Decisões manuais exportadas: "+Object.keys(file.reviews).length+" OS revisadas.");
+};
+$("dashImportDecisions").onclick=()=>$("dashReviewFile").click();
+$("dashReviewFile").onchange=async event=>{
+ const file=event.target.files[0];if(!file)return;
+ try{
+  const decisions=importReviewFile(JSON.parse(await file.text()));
+  state.dashboardReviews={...state.dashboardReviews,...decisions};
+  renderDashboard();
+  log("Importadas "+Object.keys(decisions).length+" decisões de OS, com recálculo dos KPIs.");
+ }catch(error){log("Erro nas decisões: "+error.message);}
+ event.target.value="";
+};
+$("dashPreview").addEventListener("change",event=>{
+ const el=event.target;
+ const type=el.matches("[data-review-select]")?"selected":
+  el.matches("[data-review-side]")?"side":
+  el.matches("[data-review-date]")?"date":
+  el.matches("[data-review-note]")?"note":"";
+ if(!type)return;
+ const machine=el.closest(".report-machine");
+ const row=el.closest("tr[data-order]");
+ if(!machine||!row)return;
+ const id=reviewOrderKey(machine.dataset.asset,row.dataset.order);
+ const review={...(state.dashboardReviews[id]||{})};
+ review[type]=type==="selected"?el.checked:el.value;
+ state.dashboardReviews[id]=review;
+ renderDashboard();
+});
 $("dashExportHtml").onclick=exportDashboardHTML;
 $("dashSearch").oninput=renderDashboardSelections;
 $("dashFamily").onchange=renderDashboardSelections;
@@ -1895,7 +2148,7 @@ $("exportBundle").onclick=makeEnrichedPackage;
 $("exportSession").onclick=saveSessionJSON;
 $("exportSessionGzip").onclick=saveCompressedSessionJSON;
 $("importBundle").onclick=importEnrichedPackage;
-$("importSession").onclick=importSessionJSON;
+$("importSession").onclick=()=>importSessionJSON("fileSession");
 $("exportLifecycle").onclick=saveLifeReport;
 $("exportLifeQuick").onclick=saveLifeReport;
 $("lifeAllowWeak").onchange=renderLifecycle;
@@ -1903,7 +2156,7 @@ $("lifeAsOf").onchange=renderLifecycle;
 $("lifeAssetFilter").oninput=renderLifecycle;
 $("resetAll").onclick=()=>{
  if(!confirm("Apagar as bases carregadas nesta aba? Exporte um backup JSON antes de limpar."))return;
- state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];state.dashboardExcluded.clear();
+ state.bases=Object.fromEntries(ROLES.map(r=>[r,[]]));state.loaded=[];state.dashboardExcluded.clear();state.dashboardReviews={};
  log("Sessão de dados limpa; backup não é gerado automaticamente.");rebuild();
 };
 rebuild();
