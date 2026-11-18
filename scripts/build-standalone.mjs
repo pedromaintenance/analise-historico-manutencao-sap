@@ -8,8 +8,8 @@ const imports=/<script type="module">\s*import \{[^\n]+\} from "\.\/src\/engine\
 if(!imports.test(page))throw new Error("Imports dos módulos engine/dashboard não encontrados no HTML.");
 const plain=code=>code.replace(/export const /g,"const ").replace(/export function /g,"function ");
 const dashboardWrapped="const DashboardModule=(function(){\n"+plain(dashboard)+
-  "\nreturn {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard};\n})();\n"+
-  "const {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard}=DashboardModule;\n";
+  "\nreturn {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard,recalculateReviewedDashboard,reviewOrderKey,exportReviewFile,importReviewFile,normalizeReviewDecisions};\n})();\n"+
+  "const {DASHBOARD_STYLE,buildDashboardData,renderDashboardCards,generateStandaloneDashboard,recalculateReviewedDashboard,reviewOrderKey,exportReviewFile,importReviewFile,normalizeReviewDecisions}=DashboardModule;\n";
 const compiled=page.replace(imports,"<script>\n"+plain(engine)+"\n"+dashboardWrapped+"\n");
 const location=resolve(root,"standalone.html");
 if(process.argv.includes("--check")){
