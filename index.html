@@ -221,6 +221,11 @@ footer{font-size:12px;color:var(--sub);text-align:center;padding:26px 16px}
    <div class="tablewrap"><table id="lifeEquipmentTable"></table></div>
  </div>
  <div class="panel">
+  <h3>Eventos prováveis de substituição integral — OS principal e OS de apoio</h3>
+  <p class="help">Relação rigorosa: escopo da intervenção, assinatura do conjunto de materiais e custos reais. A data poderá vir do Fim da avaria ou de uma OS de substituição relacionada, sempre com a fonte identificada. Uma OS sem lado definido continua na lista por equipamento, sem gerar artificialmente dois ciclos físicos.</p>
+  <div class="tablewrap"><table id="lifeInferredEventsTable"></table></div>
+ </div>
+ <div class="panel">
    <h3>Ciclo individual e ordem exata da substituição</h3>
    <p class="muted">O primeiro ciclo utiliza entrada em serviço quando disponível; caso contrário, a aquisição é identificada como aproximação. Para ciclos posteriores, usa-se a OS da substituição anterior como marco. Todas as datas são referências e não comprovam execução.</p>
    <div class="tablewrap"><table id="lifeCyclesTable"></table></div>
@@ -484,6 +489,14 @@ function renderLifecycle(){
    x.observedSides,x.subsequentIntervals,x.meanDays,x.firstLifeEstimates,
    x.candidateOrders,x.acceptedOrderNumbers
  ]),900);
+ table("lifeInferredEventsTable",["Equipamento SAP","Ativo","OS principal","OS de apoio",
+   "Data do evento","Fonte da data","Lado","Assinatura de materiais",
+   "Custo real da OS","Custo relativo à mediana*","Dias desde origem*"],r.equipmentEvents.map(x=>[
+   x.equipment,x.asset,x.order,x.relatedOrders,x.date,x.dateSource,x.side,
+   x.materialFamilies+" — "+x.materialEvidence,fmtCost(x.costReal),
+   x.costRatio==null?"—":x.costRatio.toLocaleString("pt-BR",{maximumFractionDigits:1})+"×",
+   x.firstElapsedDays??""
+ ]),500);
  table("lifeCyclesTable",["Equipamento SAP","Ativo","Lado","Sequência","Tipo",
    "OS EXATA","OS anterior","OS agrupadas","Data inicial","Data da troca","Dias",
    "Origem inicial","Fonte da data","Evidência","Custo OS (não duplicar)","Materiais"],r.cycles.map(x=>[
@@ -492,10 +505,10 @@ function renderLifecycle(){
    x.confidence,fmtCost(x.costOfOrders),x.partNumbers
  ]),650);
  table("lifeAuditTable",["Equipamento","Ativo","OS exata","Descrição",
-   "Classe","Lado","Status","Evidência","Elegível","Justificativa",
+   "Classe","Lado","Status","Evidência","Elegível","Justificativa","Assinatura de materiais","OS apoio",
    "Data-base","Fim avaria","Entrada","Custo real","Reservas"],r.audit.map(x=>[
    x.equipment,x.asset,x.order,x.description,x.operationClass,x.side,x.status,
-   x.evidence,x.accepted,x.reason,x.dateBase,x.faultEnd,x.entry,fmtCost(x.costReal),x.reservedMaterials
+   x.evidence,x.accepted,x.reason,x.materialEvidence,x.supportingOrders,x.dateBase,x.faultEnd,x.entry,fmtCost(x.costReal),x.reservedMaterials
  ]),600);
  table("lifeMaterialsTable",["OS exata","Ativo","Lado","Reserva","Código","Descrição",
    "Qtd.","UM","Eliminado","Registro final"],r.materialDetails.map(x=>[
@@ -684,6 +697,7 @@ function saveLifeReport(){
  downloadSheets("sap_ciclo_vida_esteiras",[
   {name:"Equipamentos",rows:r.equipmentSummary},
   {name:"CiclosPorOS",rows:r.cycles},
+  {name:"EventosInferidos",rows:r.equipmentEvents},
   {name:"AuditoriaOS",rows:r.audit},
   {name:"MateriaisPorOS",rows:r.materialDetails},
   {name:"CiclosEmAberto",rows:r.openCycles}
