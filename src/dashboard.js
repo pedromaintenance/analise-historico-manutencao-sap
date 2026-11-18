@@ -50,6 +50,7 @@ export function buildDashboardData(lifecycle,{excluded=[],includeAll=true,create
      evidence:toText(a.evidence||a.confidence),reason:toText(a.reason||a.justification),
      materialEvidence:toText(a.materialEvidence),materialFamilies:toText(a.materialFamilies),
      supportingOrders:toText(a.supportingOrders),
+     eventDateSource:toText(a.referenceSource),
      scopeEvidence:toText(a.scopeEvidence),
      isChange:acceptedOS.has(os),side:toText(a.side),materials,
      materialCount:materials.length||Number(a.reserveCount??a.materialCount??0)||0
@@ -129,7 +130,8 @@ export function renderDashboardCards(data,{includeOther=false}={}){
     '<td>'+money(o.costReal)+'</td>'+
     '<td><span class="report-pill'+(o.isChange?'':' review')+'">'+(o.isChange?'Provável troca integral':'Revisar / outro serviço')+'</span>'+
      '<small class="report-evidence">'+escapeHtml(o.materialEvidence||o.evidence)+
-     (o.supportingOrders?' · OS associada: '+escapeHtml(o.supportingOrders):'')+'</small></td>'+
+     (o.supportingOrders?' · OS associada: '+escapeHtml(o.supportingOrders):'')+
+     (o.isChange&&o.eventDateSource?' · Data: '+escapeHtml(o.eventDateSource):'')+'</small></td>'+
     '<td><details><summary>Materiais ('+o.materialCount+')</summary><div class="report-materials">'+materialContent+'</div></details></td></tr>';
   }).join('');
   const table='<div class="report-table-scroller"><table><thead><tr><th>Ordem SAP</th><th>Descrição da OS</th><th>Data-base</th><th>Fim da avaria</th><th>Entrada</th><th>Custo total da OS*</th><th>Classificação</th><th>Detalhes</th></tr></thead><tbody>'+body+'</tbody></table></div>';
