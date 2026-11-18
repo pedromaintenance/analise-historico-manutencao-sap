@@ -379,8 +379,7 @@ export function rodanteMaterialSignature(reservations=[]) {
  const peripheralFamilies=[shoes,heavyFasteners,drive,idler,rollers].filter(Boolean).length;
  // Não basta a palavra 'esteira' no nome de um parafuso, ou custo elevado.
  // Conjuntos típicos: corrente/elos + sapatas + fixações; ou corrente + 2 outros sistemas.
- const complete=core&&((shoes&&(heavyFasteners||peripheralFamilies>=2))||
-   (drive&&idler)||(peripheralFamilies>=3));
+ const complete=core&&peripheralFamilies>=2;
  const categories=Object.entries(parts).filter(([name,rows])=>name!=="other"&&name!=="service"&&rows.length).map(([name])=>name);
  return {complete,core,shoes,heavyFasteners,drive,idler,rollers,
    peripheralFamilies,materialRows:materialRows.length,
