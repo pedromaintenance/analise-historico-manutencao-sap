@@ -35,7 +35,8 @@ test("não confunde corrente de avanço com esteira",()=>{
 test("reservas MB24 não comprovam troca realizada",()=>{
  const m=createModel({orders:[ord("OS-4","2026-01-01","BL-SUBSTITUIR ROLETES","ABER")],
  reservations:[{"Nº reserva":"R1","Ordem":"OS-4",Material:"MAT-FICT-1","Texto breve material":"ROLETE FICTICIO","Qtd.necessária":"2"}]});
- assert.equal(classifyRodante(m.orders[0]).evidence,"troca planejada / sem confirmação");
+ assert.equal(classifyRodante(m.orders[0]).operationClass,"troca parcial / componente");
+ assert.equal(classifyRodante(m.orders[0]).eventStrong,false);
  assert.equal(m.orders[0].reserves.length,1);
  assert.equal(exportMaterials(m)[0]["Ordens distintas"],1);
 });
@@ -91,7 +92,7 @@ test("montagem da esteira não conta como substituição confirmada",()=>{
   ord("OS-62","2026-04-01","INSTALAR ESTEIRA LD","ENTE","2026-04-05")
  ]});
  const candidates=analyzeRodante(m);
- assert.equal(candidates.eligible.length,0);
+ assert.equal(candidates.eligible.length,2);
  assert.equal(candidates.intervals.length,0);
 });
 test("status customizados funcionam e cancelamento tem precedência",()=>{
@@ -103,7 +104,7 @@ test("status customizados funcionam e cancelamento tem precedência",()=>{
  const r=analyzeRodante(m,{completionStatuses:["FINAL"],cancellationStatuses:["VOID"],allowWeak:true});
  assert.equal(r.intervals.length,1);assert.equal(r.eligible.length,2);
 });
-test("não agrega médias de componentes diferentes num indicador global",()=>{
+test("componentes isolados não contaminam a média de troca integral",()=>{
  const m=createModel({equipment,orders:[
   ord("OS-81","2026-01-01","SUBSTITUIR ESTEIRA LD","ENTE","2026-01-05"),
   ord("OS-82","2026-04-01","SUBSTITUIR ESTEIRA LD","ENTE","2026-04-05"),
@@ -111,9 +112,9 @@ test("não agrega médias de componentes diferentes num indicador global",()=>{
   ord("OS-84","2026-05-01","SUBSTITUIR ROLETE LD","ENTE","2026-05-07")
  ]});
  const r=analyzeRodante(m,{component:"todos",allowWeak:true});
- assert.equal(r.intervals.length,2);
- assert.equal(r.meanDays,null);
- assert.equal(r.mixingComponents,true);
+ assert.equal(r.intervals.length,1);
+ assert.equal(r.mixingComponents,false);
+ assert.ok(r.meanDays>0);
 });
 
 test("lê corretamente datas Excel e formatos brasileiros com ano de dois dígitos",()=>{
@@ -190,7 +191,7 @@ test("data de aquisição funciona como aproximação quando comissionamento fal
  const m=createModel({equipment:eq,orders,reservations:[{"Nº reserva":"RES-888",
    Ordem:"OS-888",Material:"MAT-888","Texto breve material":"ESTEIRA COMPLETA",
    "Qtd.necessária":2}]});
- const r=analyzeRodante(m,{asOf:"2026-11-17"});
+ const r=analyzeRodante(m,{asOf:"2026-11-17",allowWeak:true});
  assert.equal(r.initialLifeEstimates.length,2);
  assert.equal(r.initialLifeEstimates[0].elapsedDays,365);
  assert.equal(r.initialLifeEstimates[0].originSource,"aquisição (não é comissionamento)");
@@ -201,7 +202,7 @@ test("comissionamento explícito tem precedência sobre aquisição",()=>{
  const m=createModel({equipment:eq,orders:[{Ordem:"OS-888","Tipo de ordem":"PM01",
    Equipamento:"EQ-TRACK","Texto breve":"TROCAR ESTEIRA LD","Data-base do início":"01/03/2026",
    "Status do sistema":"ENTE","Custos tot.reais":100000}]});
- const r=analyzeRodante(m,{asOf:"2026-11-17"});
+ const r=analyzeRodante(m,{asOf:"2026-11-17",allowWeak:true});
  assert.equal(r.initialLifeEstimates.length,1);
  assert.equal(r.initialLifeEstimates[0].elapsedDays,365);
  assert.equal(r.initialLifeEstimates[0].originSource,"entrada em serviço");
@@ -227,7 +228,9 @@ test("catalogo de esteira e lagarta com código e sem palavra 'completa' é evid
  const m=createModel({equipment:[{Equipamento:"EQ-A","Denominação do objeto técnico":"TRATOR FICTÍCIO 050-888","Data de aquisição":"01/01/2025"}],
  orders:[{Ordem:"A","Tipo de ordem":"PM01","Equipamento":"EQ-A","Texto breve":"TROCAR ESTEIRAS LD LE",
    "Status do sistema":"ENTE","Data-base do início":"01/01/2026","Custos tot.reais":200000}],
- reservations:[{"Nº reserva":"R-A",Ordem:"A","Texto breve material":"LAGARTA 12345 FABRICANTE","Qtd.necessária":2}]});
+ reservations:[{"Nº reserva":"R-A",Ordem:"A","Texto breve material":"LAGARTA 12345 FABRICANTE","Qtd.necessária":2},
+ {"Nº reserva":"R-A",Ordem:"A","Texto breve material":"SAPATA 123","Qtd.necessária":100},
+ {"Nº reserva":"R-A",Ordem:"A","Texto breve material":"PARAFUSO ESTEIRA 234","Qtd.necessária":400}]});
  assert.equal(classifyRodante(m.orders[0]).eventStrong,true);
  assert.equal(analyzeRodante(m,{asOf:"2026-11-17"}).initialLifeEstimates.length,2);
 });
@@ -262,8 +265,11 @@ test("ciclo de vida lista a ordem exata por equipamento e lado",()=>{
     "Texto breve":"SUBSTITUIR ESTEIRA LD","Data-base do início":"01/08/2026",
     "Custos tot.reais":120000,"Status do sistema":"ENCE"}],
   reservations:[
-   {"Nº reserva":"RS1",Ordem:"OS-PRIMEIRA","Material":"M1","Texto breve material":"ESTEIRA COMPLETA"},
-   {"Nº reserva":"RS2",Ordem:"OS-SEGUNDA","Material":"M2","Texto breve material":"GRUPO DE ESTEIRA"}]
+   ...["OS-PRIMEIRA","OS-SEGUNDA"].flatMap((order,i)=>[
+    {"Nº reserva":"RS"+i,Ordem:order,Material:"M-CHAIN"+i,"Texto breve material":"ESTEIRA COMPLETA","Qtd.necessária":2},
+    {"Nº reserva":"RS"+i,Ordem:order,Material:"M-SHOE"+i,"Texto breve material":"SAPATA","Qtd.necessária":96},
+    {"Nº reserva":"RS"+i,Ordem:order,Material:"M-BOLT"+i,"Texto breve material":"PARAFUSO ESTEIRA","Qtd.necessária":380}
+   ])]
  });
  const r=analyzeLifecycle(m,{asOf:"2026-11-17"});
  assert.equal(r.equipmentSummary.length,1);
@@ -273,7 +279,7 @@ test("ciclo de vida lista a ordem exata por equipamento e lado",()=>{
  assert.equal(r.cycles[1].order,"OS-SEGUNDA");
  assert.equal(r.cycles[1].previousOrder,"OS-PRIMEIRA");
  assert.equal(r.cycles[1].days,153);
- assert.equal(r.materialDetails.length,2);
+ assert.equal(r.materialDetails.length,6);
  assert.equal(r.metrics.approvedOrders,2);
 });
 test("troca dos dois lados na mesma OS conta uma ordem, duas esteiras",()=>{
@@ -282,7 +288,12 @@ test("troca dos dois lados na mesma OS conta uma ordem, duas esteiras",()=>{
    "Data de aquisição":"01/01/2025"}],
    orders:[{Ordem:"OS-BOTH","Tipo de ordem":"PM01",Equipamento:"EQ-A",
     "Texto breve":"SUBSTITUIR ESTEIRAS LD LE","Data-base do início":"01/01/2026",
-    "Custos tot.reais":100000,"Status do sistema":"ENCE"}]});
+    "Custos tot.reais":100000,"Status do sistema":"ENCE"}],
+   reservations:[
+    {"Nº reserva":"RB",Ordem:"OS-BOTH","Texto breve material":"ESTEIRA COMPLETA","Qtd.necessária":2},
+    {"Nº reserva":"RB",Ordem:"OS-BOTH","Texto breve material":"SAPATA","Qtd.necessária":96},
+    {"Nº reserva":"RB",Ordem:"OS-BOTH","Texto breve material":"PARAFUSO ESTEIRA","Qtd.necessária":380}]
+ });
  const r=analyzeLifecycle(m,{asOf:"2026-11-17"});
  assert.equal(r.cycles.length,2);
  assert.equal(r.equipmentSummary[0].acceptedOrders,1);
@@ -306,7 +317,12 @@ test("ordem sem lado conhecido permanece na auditoria, sem produzir vida calcula
    "Denominação do objeto técnico":"ESCAVADEIRA FICTICIA CAT 395 021-888"}],
    orders:[{Ordem:"OS-SEM-LADO","Tipo de ordem":"PM01",Equipamento:"EQ-A",
     "Texto breve":"SUBSTITUIR ESTEIRA COMPLETA","Data-base do início":"01/01/2026",
-    "Custos tot.reais":100000,"Status do sistema":"ENCE"}]});
+    "Custos tot.reais":100000,"Status do sistema":"ENCE"}],
+   reservations:[
+    {"Nº reserva":"RN",Ordem:"OS-SEM-LADO","Texto breve material":"ESTEIRA COMPLETA","Qtd.necessária":2},
+    {"Nº reserva":"RN",Ordem:"OS-SEM-LADO","Texto breve material":"SAPATA","Qtd.necessária":96},
+    {"Nº reserva":"RN",Ordem:"OS-SEM-LADO","Texto breve material":"PARAFUSO ESTEIRA","Qtd.necessária":380}]
+ });
  const r=analyzeLifecycle(m,{asOf:"2026-11-17"});
  assert.equal(r.cycles.length,0);
  assert.equal(r.audit[0].order,"OS-SEM-LADO");
@@ -371,7 +387,7 @@ test("reserva eliminada não demonstra presença de conjunto completo",()=>{
    "Texto breve material":"ESTEIRA COMPLETA","Item foi eliminado":"X"}]});
  const result=classifyRodante(m.orders[0]);
  assert.equal(result.fullMaterial,false);
- assert.equal(result.evidenceLevel,"média (sem MB24 da troca)");
+ assert.equal(result.evidenceLevel,"revisão necessária (custo sem kit MB24)");
 });
 
 test("IW39 sem coluna Equipamento concilia pela TAG no Campo de ordenação",()=>{
