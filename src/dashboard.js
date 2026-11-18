@@ -21,6 +21,8 @@ export function buildDashboardData(lifecycle,{excluded=[],includeAll=true,create
   const unique=new Map();
   for(const a of audits){const os=toText(a.order);if(os&&!unique.has(os))unique.set(os,a);}
   const cycles=(lifecycle.cycles||[]).filter(c=>toText(c.equipment||c.objectId||c.tag)===id||(!c.equipment&&c.asset===m.asset));
+  const machineEvents=(lifecycle.equipmentEvents||[]).filter(x=>
+    toText(x.equipment||x.tag)===id||(!x.equipment&&x.asset===m.asset));
   const knownFirst=cycles.filter(c=>toText(c.cycleType||c.kind).toLowerCase().includes("primeira")&&Number.isFinite(Number(c.days??c.elapsedDays))&&toText(c.days??c.elapsedDays)!=="").map(c=>Number(c.days??c.elapsedDays));
   const subsequent=cycles.filter(c=>toText(c.cycleType||c.kind).toLowerCase().includes("subsequente")&&Number.isFinite(Number(c.days??c.elapsedDays))&&toText(c.days??c.elapsedDays)!=="").map(c=>Number(c.days??c.elapsedDays));
   const firstEventDays=machineEvents.map(x=>x.firstElapsedDays).filter(x=>x!=null&&Number.isFinite(+x)).map(Number);
@@ -29,8 +31,7 @@ export function buildDashboardData(lifecycle,{excluded=[],includeAll=true,create
   const approvedAudit=[...unique.values()].filter(a=>a.accepted==="SIM");
   const acceptedOS=new Set([...cycles.map(c=>toText(c.order)),
     ...approvedAudit.map(a=>toText(a.order))].filter(Boolean));
-  const machineEvents=(lifecycle.equipmentEvents||[]).filter(x=>
-    toText(x.equipment||x.tag)===id||(!x.equipment&&x.asset===m.asset));
+
   const materialDetails=(lifecycle.materialDetails||[]).filter(x=>toText(x.equipment||x.objectId||x.tag)===id||(!x.equipment&&x.asset===m.asset));
   const materialByOrder=new Map();
   for(const r of materialDetails){const os=toText(r.order);if(!materialByOrder.has(os))materialByOrder.set(os,[]);materialByOrder.get(os).push({
