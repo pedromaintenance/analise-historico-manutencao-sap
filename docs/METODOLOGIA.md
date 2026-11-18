@@ -69,3 +69,19 @@ A primeira vida observada parte da data de entrada em serviço, quando fornecida
 ## Persistência portátil e controle de acesso
 
 O pacote Excel multiabas preserva os campos originais de cada fonte e uma coluna de identificação da origem. A sessão JSON possui versão explícita e conserva as bases brutas, os nomes de origem e filtros. O JSON não é anonimizado; deve ser mantido em ambiente corporativo autorizado, sem publicação pública e sem upload a sites não autorizados.
+
+## Regra conservadora para provável troca integral de material rodante
+
+**Critério simultâneo:** escopo técnico de conjunto + BOM de conjunto central com ao menos duas famílias complementares + custo real positivo + ausência de cancelamento. Não se deve usar só o verbo TROCAR ou o valor monetário para classificar uma ordem.
+
+**Escopo técnico forte:** MONTAGEM DA ESTEIRA, SUBSTITUIÇÃO ESTEIRA, BACKLOG ESTEIRA COMPLETA, MATERIAL RODANTE COMPLETO. O texto MATERIAL RODANTE sem COMPLETO pode ser reconhecido se o conjunto de peças corrobora. Serviços isolados de FPS, tensor, roda-guia, rolete, sapatas ou parafusos permanecem parciais.
+
+**Assinatura do kit:** corrente/conjunto de elos/lagarta/esteira montada e duas ou mais famílias entre sapatas, fixadores em lote expressivo, roletes, roda-guia e roda motriz. Uma posição única, ainda que com descrição de esteira, não é assinatura completa.
+
+**Tratamento MB24:** Item foi eliminado marcado não retira a posição da evidência se a quantidade de registro for positiva. Com registro final e quantidade registrada ajudam a qualificar a demanda atendida; a confirmação do movimento físico depende de documento de material, como MB51 e eventuais estornos.
+
+**Reconstrução de evento:** a OS com kit e custo é principal. A OS relacionada sem custo pode documentar a substituição, compartilhando Fim da avaria ou tendo uma Data-base explícita até 45 dias posterior no mesmo equipamento. O vínculo é registrado e nunca gera uma segunda troca. O Fim da avaria posterior ao planejamento pode ser escolhido como data do evento, mantendo a data-base visível; datas de OS relacionada são identificadas como inferência documental.
+
+**Sem lado:** um conjunto completo com prova econômica/material é contado como uma intervenção por OS, sem inventar dois ciclos individuais direito/esquerdo.
+
+**Limite:** o algoritmo identifica provável substituição integral sustentada por documentação, não confirmação absoluta de instalação ou vida operacional em horas. Não divulgar dados da empresa no repositório público.
